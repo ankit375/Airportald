@@ -197,6 +197,7 @@ int nft_manager_init(struct nft_manager *mgr, bool dry_run)
 	mgr->ready = false;
 	mgr->dry_run = dry_run;
 	mgr->portal_port = 0;
+	memset(mgr->bandwidth, 0, sizeof(mgr->bandwidth));
 	return 0;
 }
 
@@ -227,10 +228,13 @@ int nft_manager_install_base_rules(struct nft_manager *mgr,
 			 "\t}\n"
 			 "\tchain forward {\n"
 			 "\t\ttype filter hook forward priority filter; policy accept;\n"
+			 "\t\tjump bandwidth\n"
 			 "\t\tether saddr @captive_macs ip daddr @walled_ipv4 counter accept\n"
 			 "\t\tether saddr @captive_macs udp dport { 53, 67, 68 } counter accept\n"
 			 "\t\tether saddr @captive_macs tcp dport 53 counter accept\n"
 			 "\t\tether saddr @captive_macs counter drop\n"
+			 "\t}\n"
+			 "\tchain bandwidth {\n"
 			 "\t}\n"
 			 "}\n",
 			 walled_ipv4, portal_port);
@@ -272,6 +276,150 @@ int nft_manager_authorize_client(struct nft_manager *mgr,
 	return 0;
 }
 
+static uint64_t bps_to_bytes_per_second(uint64_t bps)
+{
+	uint64_t rate = (bps + 7u) / 8u;
+
+	return rate ? rate : 1u;
+}
+
+static bool bandwidth_entry_matches(const struct nft_bandwidth_entry *entry,
+				    const struct airportal_client *client)
+{
+	return entry->used &&
+	       airportal_client_key_equal(&entry->key, &client->key) &&
+	       strcmp(entry->ifname, client->ifname) == 0;
+}
+
+static void nft_bandwidth_remove_entry(struct nft_manager *mgr,
+				       const struct airportal_client *client)
+{
+	size_t i;
+
+	for (i = 0; i < AIRPORTAL_MAX_CLIENTS; i++) {
+		if (!bandwidth_entry_matches(&mgr->bandwidth[i], client))
+			continue;
+		memset(&mgr->bandwidth[i], 0, sizeof(mgr->bandwidth[i]));
+		return;
+	}
+}
+
+static int nft_bandwidth_set_entry(struct nft_manager *mgr,
+				   const struct airportal_client *client,
+				   const struct airportal_session_policy *policy)
+{
+	struct nft_bandwidth_entry *free_entry = NULL;
+	size_t i;
+
+	nft_bandwidth_remove_entry(mgr, client);
+	if (!policy->max_upload_bps && !policy->max_download_bps)
+		return 0;
+
+	for (i = 0; i < AIRPORTAL_MAX_CLIENTS; i++) {
+		if (!mgr->bandwidth[i].used) {
+			free_entry = &mgr->bandwidth[i];
+			break;
+		}
+	}
+	if (!free_entry)
+		return -1;
+
+	free_entry->used = true;
+	free_entry->key = client->key;
+	snprintf(free_entry->ifname, sizeof(free_entry->ifname), "%s",
+		 client->ifname);
+	free_entry->upload_bps = policy->max_upload_bps;
+	free_entry->download_bps = policy->max_download_bps;
+	return 0;
+}
+
+static int nft_bandwidth_rebuild(struct nft_manager *mgr)
+{
+	char *script;
+	size_t script_len;
+	size_t used = 0;
+	size_t i;
+	int n;
+	int rc;
+
+	if (mgr->dry_run)
+		return 0;
+
+	script_len = 128u + AIRPORTAL_MAX_CLIENTS * 256u;
+	script = calloc(1, script_len);
+	if (!script)
+		return -1;
+
+	n = snprintf(script, script_len,
+		     "flush chain inet " AIRPORTAL_NFT_TABLE " bandwidth\n");
+	if (n < 0 || (size_t)n >= script_len) {
+		free(script);
+		return -1;
+	}
+	used = (size_t)n;
+
+	for (i = 0; i < AIRPORTAL_MAX_CLIENTS; i++) {
+		struct nft_bandwidth_entry *entry = &mgr->bandwidth[i];
+		char mac[18];
+
+		if (!entry->used)
+			continue;
+		airportal_format_mac(entry->key.mac, mac, sizeof(mac));
+		if (entry->upload_bps) {
+			n = snprintf(script + used, script_len - used,
+				     "add rule inet " AIRPORTAL_NFT_TABLE
+				     " bandwidth ether saddr %s limit rate over %llu bytes/second counter drop\n",
+				     mac,
+				     (unsigned long long)bps_to_bytes_per_second(
+					     entry->upload_bps));
+			if (n < 0 || (size_t)n >= script_len - used) {
+				free(script);
+				return -1;
+			}
+			used += (size_t)n;
+		}
+		if (entry->download_bps) {
+			n = snprintf(script + used, script_len - used,
+				     "add rule inet " AIRPORTAL_NFT_TABLE
+				     " bandwidth ether daddr %s limit rate over %llu bytes/second counter drop\n",
+				     mac,
+				     (unsigned long long)bps_to_bytes_per_second(
+					     entry->download_bps));
+			if (n < 0 || (size_t)n >= script_len - used) {
+				free(script);
+				return -1;
+			}
+			used += (size_t)n;
+		}
+	}
+	rc = run_nft_script(script);
+	free(script);
+	return rc;
+}
+
+int nft_manager_apply_bandwidth_client(struct nft_manager *mgr,
+				       const struct airportal_client *client,
+				       const struct airportal_session_policy *policy)
+{
+	if (!mgr->ready || !client || !policy)
+		return -1;
+	if (nft_bandwidth_set_entry(mgr, client, policy) != 0)
+		return -1;
+	if (nft_bandwidth_rebuild(mgr) != 0) {
+		ap_log_warn("nft_bandwidth_apply_failed ifname=%s", client->ifname);
+		return -1;
+	}
+	if (policy->max_upload_bps || policy->max_download_bps)
+		ap_log_info("nft_bandwidth_apply mac=%02X:%02X:%02X:%02X:%02X:%02X ifname=%s upload_bps=%llu download_bps=%llu",
+			    client->key.mac[0], client->key.mac[1],
+			    client->key.mac[2], client->key.mac[3],
+			    client->key.mac[4], client->key.mac[5],
+			    client->ifname,
+			    (unsigned long long)policy->max_upload_bps,
+			    (unsigned long long)policy->max_download_bps);
+	return 0;
+}
+
 int nft_manager_block_client(struct nft_manager *mgr,
 			     const struct airportal_client *client)
 {
@@ -289,8 +437,11 @@ int nft_manager_remove_client(struct nft_manager *mgr,
 	if (!mgr->ready || !client)
 		return -1;
 	log_client_action("remove_client", client);
-	if (!mgr->dry_run)
+	nft_bandwidth_remove_entry(mgr, client);
+	if (!mgr->dry_run) {
+		nft_bandwidth_rebuild(mgr);
 		nft_set_client_element("delete", client, true);
+	}
 	return 0;
 }
 
@@ -302,5 +453,6 @@ int nft_manager_flush_managed_state(struct nft_manager *mgr)
 		nft_delete_managed_tables();
 	ap_log_info("nft_flush_managed_state table=inet_%s", AIRPORTAL_NFT_TABLE);
 	mgr->ready = false;
+	memset(mgr->bandwidth, 0, sizeof(mgr->bandwidth));
 	return 0;
 }

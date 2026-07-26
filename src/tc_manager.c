@@ -152,23 +152,24 @@ int tc_manager_apply_client(struct tc_manager *mgr,
 
 	if (!mgr || !mgr->ready || !client || !policy)
 		return -1;
-	if (!policy->max_upload_bps && !policy->max_download_bps)
-		return 0;
 	if (!mgr->native_available) {
 		ap_log_warn("tc_policy_skipped reason=tc_unavailable ifname=%s",
 			    client->ifname);
-		return 0;
+		return policy->max_upload_bps || policy->max_download_bps ? -1 : 0;
 	}
 
 	pref = client_priority(client);
 	if (ensure_clsact(client) != 0) {
 		ap_log_warn("tc_policy_skipped reason=clsact_unavailable ifname=%s",
 			    client->ifname);
-		return 0;
+		return policy->max_upload_bps || policy->max_download_bps ? -1 : 0;
 	}
 
 	remove_filter(client, "ingress", pref);
 	remove_filter(client, "egress", pref);
+	if (!policy->max_upload_bps && !policy->max_download_bps)
+		return 0;
+
 	if (policy->max_upload_bps &&
 	    apply_filter(client, "ingress", "src_mac",
 			 policy->max_upload_bps, pref) != 0)
@@ -189,7 +190,7 @@ int tc_manager_apply_client(struct tc_manager *mgr,
 	else
 		ap_log_warn("tc_policy_apply_failed ifname=%s pref=%u",
 			    client->ifname, pref);
-	return 0;
+	return rc;
 }
 
 int tc_manager_update_client(struct tc_manager *mgr,

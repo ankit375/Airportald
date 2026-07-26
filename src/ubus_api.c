@@ -201,6 +201,10 @@ static int sessions_handler(struct ubus_context *ctx, struct ubus_object *obj,
 				s->policy.max_output_octets);
 		blobmsg_add_u64(&b, "max_total_octets",
 				s->policy.max_total_octets);
+		blobmsg_add_u64(&b, "max_upload_bps",
+				s->policy.max_upload_bps);
+		blobmsg_add_u64(&b, "max_download_bps",
+				s->policy.max_download_bps);
 		blobmsg_add_u64(&b, "remaining_input_octets",
 				airportal_session_remaining_input_octets(s));
 		blobmsg_add_u64(&b, "remaining_output_octets",
