@@ -69,6 +69,7 @@ struct airportal_client {
 struct airportal_session_policy {
 	uint32_t session_timeout_sec;
 	uint32_t idle_timeout_sec;
+	uint64_t idle_activity_threshold_bytes;
 	uint32_t accounting_interval_sec;
 
 	uint64_t max_input_octets;
@@ -100,6 +101,8 @@ struct airportal_session {
 
 	uint64_t input_octets;
 	uint64_t output_octets;
+	uint64_t last_activity_input_octets;
+	uint64_t last_activity_output_octets;
 	uint64_t input_octets_base;
 	uint64_t output_octets_base;
 	uint64_t last_accounting_input_octets;

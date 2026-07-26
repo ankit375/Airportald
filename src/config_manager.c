@@ -38,6 +38,7 @@ void airportal_config_defaults(struct airportal_config *cfg)
 	cfg->global.default_accounting_interval = 300;
 	cfg->global.default_session_timeout = 3600;
 	cfg->global.default_idle_timeout = 600;
+	cfg->global.default_idle_activity_threshold_bytes = 65536;
 	cfg->global.portal_http_port = 8088;
 	cfg->global.portal_http_host[0] = '\0';
 	cfg->global.coa_port = 3799;
@@ -299,6 +300,10 @@ int airportal_config_load(struct airportal_config *cfg, const char *package)
 				uci_lookup_u32(ctx, s, "default_session_timeout", 3600);
 			cfg->global.default_idle_timeout =
 				uci_lookup_u32(ctx, s, "default_idle_timeout", 600);
+			cfg->global.default_idle_activity_threshold_bytes =
+				uci_lookup_u32(ctx, s,
+					       "default_idle_activity_threshold_bytes",
+					       65536);
 			cfg->global.fail_open = uci_lookup_bool(ctx, s, "fail_open", false);
 			cfg->global.portal_http_port =
 				(uint16_t)uci_lookup_u32(ctx, s, "portal_http_port", 8088);
@@ -335,6 +340,10 @@ int airportal_config_load(struct airportal_config *cfg, const char *package)
 			portal->default_idle_timeout =
 				uci_lookup_u32(ctx, s, "default_idle_timeout",
 					       cfg->global.default_idle_timeout);
+			portal->default_idle_activity_threshold_bytes =
+				uci_lookup_u32(ctx, s,
+					       "default_idle_activity_threshold_bytes",
+					       cfg->global.default_idle_activity_threshold_bytes);
 			portal->client_isolation = uci_lookup_bool(ctx, s, "client_isolation",
 								   true);
 			portal->allow_dns = uci_lookup_bool(ctx, s, "allow_dns", true);
@@ -412,6 +421,7 @@ int airportal_config_load(struct airportal_config *cfg, const char *package)
 	snprintf(cfg->portals[0].network, sizeof(cfg->portals[0].network), "guest");
 	cfg->portals[0].default_session_timeout = 3600;
 	cfg->portals[0].default_idle_timeout = 600;
+	cfg->portals[0].default_idle_activity_threshold_bytes = 65536;
 	cfg->portals[0].allow_dns = true;
 	cfg->portals[0].allow_dhcp = true;
 	cfg->portals[0].allow_captive_detection = true;

@@ -140,30 +140,61 @@ int persistence_init(struct airportal_daemon *daemon)
 		unsigned long long max_total_octets;
 		unsigned long long max_upload_bps;
 		unsigned long long max_download_bps;
+		unsigned long long idle_activity_threshold_bytes = 0;
 		int parsed;
+		int required_fields;
 
 		memset(entry, 0, sizeof(*entry));
-		parsed = sscanf(line,
-				"v1\t%17s\t%15s\t%u\t%127s\t%95s\t"
-				"%u\t%u\t%u\t%llu\t%llu\t%llu\t%llu\t"
-				"%llu\t%llu\t%llu\t%llu\t%llu\t%u\t%u\t%u\t"
-				"%u\t%llu\t%llu\t%u\t%u\t%127s\t%255s",
-				mac_text, entry->ifname, &portal_id,
-				entry->username, entry->session_id,
-				&entry->policy.session_timeout_sec,
-				&entry->policy.idle_timeout_sec,
-				&entry->policy.accounting_interval_sec,
-				&expires_at_wall_sec, &idle_expires_at_wall_sec,
-				&input_octets_base, &output_octets_base,
-				&input_octets, &output_octets,
-				&max_input_octets, &max_output_octets,
-				&max_total_octets,
-				&allow_ipv4, &allow_ipv6, &has_assigned_vlan,
-				&assigned_vlan, &max_upload_bps, &max_download_bps,
-				&accounting_started, &policy_installed,
-				entry->policy.filter_id,
-				entry->policy.radius_class);
-		if (parsed < 27 || !airportal_parse_mac(mac_text, entry->mac))
+		if (strncmp(line, "v2\t", 3) == 0) {
+			required_fields = 28;
+			parsed = sscanf(line,
+					"v2\t%17s\t%15s\t%u\t%127s\t%95s\t"
+					"%u\t%u\t%u\t%llu\t%llu\t%llu\t%llu\t"
+					"%llu\t%llu\t%llu\t%llu\t%llu\t%u\t%u\t%u\t"
+					"%u\t%llu\t%llu\t%llu\t%u\t%u\t%127s\t%255s",
+					mac_text, entry->ifname, &portal_id,
+					entry->username, entry->session_id,
+					&entry->policy.session_timeout_sec,
+					&entry->policy.idle_timeout_sec,
+					&entry->policy.accounting_interval_sec,
+					&expires_at_wall_sec, &idle_expires_at_wall_sec,
+					&input_octets_base, &output_octets_base,
+					&input_octets, &output_octets,
+					&max_input_octets, &max_output_octets,
+					&max_total_octets,
+					&allow_ipv4, &allow_ipv6, &has_assigned_vlan,
+					&assigned_vlan, &max_upload_bps,
+					&max_download_bps,
+					&idle_activity_threshold_bytes,
+					&accounting_started, &policy_installed,
+					entry->policy.filter_id,
+					entry->policy.radius_class);
+		} else {
+			required_fields = 27;
+			parsed = sscanf(line,
+					"v1\t%17s\t%15s\t%u\t%127s\t%95s\t"
+					"%u\t%u\t%u\t%llu\t%llu\t%llu\t%llu\t"
+					"%llu\t%llu\t%llu\t%llu\t%llu\t%u\t%u\t%u\t"
+					"%u\t%llu\t%llu\t%u\t%u\t%127s\t%255s",
+					mac_text, entry->ifname, &portal_id,
+					entry->username, entry->session_id,
+					&entry->policy.session_timeout_sec,
+					&entry->policy.idle_timeout_sec,
+					&entry->policy.accounting_interval_sec,
+					&expires_at_wall_sec, &idle_expires_at_wall_sec,
+					&input_octets_base, &output_octets_base,
+					&input_octets, &output_octets,
+					&max_input_octets, &max_output_octets,
+					&max_total_octets,
+					&allow_ipv4, &allow_ipv6, &has_assigned_vlan,
+					&assigned_vlan, &max_upload_bps,
+					&max_download_bps,
+					&accounting_started, &policy_installed,
+					entry->policy.filter_id,
+					entry->policy.radius_class);
+		}
+		if (parsed < required_fields ||
+		    !airportal_parse_mac(mac_text, entry->mac))
 			continue;
 		entry->portal_id = portal_id;
 		entry->expires_at_wall_sec = expires_at_wall_sec;
@@ -175,6 +206,8 @@ int persistence_init(struct airportal_daemon *daemon)
 		entry->policy.max_input_octets = max_input_octets;
 		entry->policy.max_output_octets = max_output_octets;
 		entry->policy.max_total_octets = max_total_octets;
+		entry->policy.idle_activity_threshold_bytes =
+			idle_activity_threshold_bytes;
 		entry->policy.allow_ipv4 = allow_ipv4 != 0;
 		entry->policy.allow_ipv6 = allow_ipv6 != 0;
 		entry->policy.has_assigned_vlan = has_assigned_vlan != 0;
@@ -236,9 +269,9 @@ int persistence_checkpoint(struct airportal_daemon *daemon)
 			       session->policy.radius_class[0] ?
 			       session->policy.radius_class : "-");
 		fprintf(fp,
-			"v1\t%s\t%s\t%u\t%s\t%s\t%u\t%u\t%u\t"
+			"v2\t%s\t%s\t%u\t%s\t%s\t%u\t%u\t%u\t"
 			"%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t"
-			"%llu\t%llu\t%u\t%u\t%u\t%u\t%llu\t%llu\t%u\t%u\t%s\t%s\n",
+			"%llu\t%llu\t%u\t%u\t%u\t%u\t%llu\t%llu\t%llu\t%u\t%u\t%s\t%s\n",
 			mac, client->ifname, client->key.portal_id, username,
 			session->session_id, session->policy.session_timeout_sec,
 			session->policy.idle_timeout_sec,
@@ -258,6 +291,7 @@ int persistence_checkpoint(struct airportal_daemon *daemon)
 			session->policy.assigned_vlan,
 			(unsigned long long)session->policy.max_upload_bps,
 			(unsigned long long)session->policy.max_download_bps,
+			(unsigned long long)session->policy.idle_activity_threshold_bytes,
 			session->accounting_started ? 1u : 0u,
 			session->policy_installed ? 1u : 0u,
 			filter_id, radius_class);

@@ -193,6 +193,9 @@ int airportal_authorize_client(struct airportal_daemon *daemon,
 		policy.session_timeout_sec = portal->default_session_timeout;
 	if (!policy.idle_timeout_sec)
 		policy.idle_timeout_sec = portal->default_idle_timeout;
+	if (!policy.idle_activity_threshold_bytes)
+		policy.idle_activity_threshold_bytes =
+			portal->default_idle_activity_threshold_bytes;
 	if (!policy.accounting_interval_sec)
 		policy.accounting_interval_sec =
 			daemon->config.global.default_accounting_interval;

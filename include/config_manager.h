@@ -14,6 +14,7 @@ struct airportal_global_config {
 	uint32_t default_accounting_interval;
 	uint32_t default_session_timeout;
 	uint32_t default_idle_timeout;
+	uint64_t default_idle_activity_threshold_bytes;
 	bool fail_open;
 	uint16_t portal_http_port;
 	char portal_http_host[64];
@@ -33,6 +34,7 @@ struct airportal_portal_config {
 	char radius_profile[32];
 	uint32_t default_session_timeout;
 	uint32_t default_idle_timeout;
+	uint64_t default_idle_activity_threshold_bytes;
 	bool client_isolation;
 	bool allow_dns;
 	bool allow_dhcp;

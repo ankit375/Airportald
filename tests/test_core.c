@@ -142,6 +142,7 @@ static void test_session_octets_refresh_idle(void)
 	memset(&policy, 0, sizeof(policy));
 	policy.session_timeout_sec = 300;
 	policy.idle_timeout_sec = 60;
+	policy.idle_activity_threshold_bytes = 100;
 	policy.allow_ipv4 = true;
 	session = airportal_session_start(&sessions, client, "AP001", "demo",
 					  &policy);
@@ -152,9 +153,14 @@ static void test_session_octets_refresh_idle(void)
 					session->started_at_ms + 10000);
 	assert(session->idle_expires_at_ms == first_idle_deadline);
 
-	airportal_session_update_octets(session, 1, 0,
+	airportal_session_update_octets(session, 99, 0,
 					session->started_at_ms + 10000);
-	assert(session->input_octets == 1);
+	assert(session->input_octets == 99);
+	assert(session->idle_expires_at_ms == first_idle_deadline);
+
+	airportal_session_update_octets(session, 100, 0,
+					session->started_at_ms + 10000);
+	assert(session->input_octets == 100);
 	assert(session->idle_expires_at_ms ==
 	       session->started_at_ms + 70000);
 }

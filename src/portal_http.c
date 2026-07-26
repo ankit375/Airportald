@@ -764,6 +764,8 @@ static void handle_auth_complete(struct portal_http_client *http_client)
 		memset(&policy, 0, sizeof(policy));
 		policy.session_timeout_sec = portal->default_session_timeout;
 		policy.idle_timeout_sec = portal->default_idle_timeout;
+		policy.idle_activity_threshold_bytes =
+			portal->default_idle_activity_threshold_bytes;
 		policy.accounting_interval_sec =
 			state->daemon->config.global.default_accounting_interval;
 		policy.allow_ipv4 = true;
@@ -819,6 +821,8 @@ static void handle_auth_complete(struct portal_http_client *http_client)
 		memset(&policy, 0, sizeof(policy));
 		policy.session_timeout_sec = portal->default_session_timeout;
 		policy.idle_timeout_sec = portal->default_idle_timeout;
+		policy.idle_activity_threshold_bytes =
+			portal->default_idle_activity_threshold_bytes;
 		policy.accounting_interval_sec =
 			state->daemon->config.global.default_accounting_interval;
 		policy.allow_ipv4 = true;

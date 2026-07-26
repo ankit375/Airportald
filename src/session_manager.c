@@ -49,15 +49,27 @@ void airportal_session_update_octets(struct airportal_session *session,
 				     uint64_t now_ms)
 {
 	bool active;
+	uint64_t threshold;
+	uint64_t input_delta;
+	uint64_t output_delta;
 
 	if (!session)
 		return;
-	active = input_octets > session->input_octets ||
+	threshold = session->policy.idle_activity_threshold_bytes;
+	input_delta = input_octets >= session->last_activity_input_octets ?
+		      input_octets - session->last_activity_input_octets : 0;
+	output_delta = output_octets >= session->last_activity_output_octets ?
+		       output_octets - session->last_activity_output_octets : 0;
+	active = threshold ?
+		 input_delta + output_delta >= threshold :
+		 input_octets > session->input_octets ||
 		 output_octets > session->output_octets;
 	session->input_octets = input_octets;
 	session->output_octets = output_octets;
 	if (!active)
 		return;
+	session->last_activity_input_octets = input_octets;
+	session->last_activity_output_octets = output_octets;
 	session->last_activity_ms = now_ms;
 	if (session->policy.idle_timeout_sec)
 		session->idle_expires_at_ms =
@@ -165,6 +177,8 @@ airportal_session_restore(struct airportal_session_manager *mgr,
 		session->output_octets_base = output_octets_base;
 		session->input_octets = input_octets;
 		session->output_octets = output_octets;
+		session->last_activity_input_octets = input_octets;
+		session->last_activity_output_octets = output_octets;
 		if (remaining_session_ms)
 			session->expires_at_ms = now + remaining_session_ms;
 		if (remaining_idle_ms)
