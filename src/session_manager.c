@@ -76,6 +76,75 @@ void airportal_session_update_octets(struct airportal_session *session,
 			now_ms + (uint64_t)session->policy.idle_timeout_sec * 1000u;
 }
 
+static uint64_t remaining_octets(uint64_t used, uint64_t max)
+{
+	if (!max)
+		return 0;
+	if (used >= max)
+		return 0;
+	return max - used;
+}
+
+static bool total_octets_at_least(uint64_t input_octets,
+				  uint64_t output_octets,
+				  uint64_t limit)
+{
+	if (!limit)
+		return false;
+	if (input_octets >= limit || output_octets >= limit)
+		return true;
+	return input_octets >= limit - output_octets;
+}
+
+bool airportal_session_quota_exceeded(const struct airportal_session *session)
+{
+	if (!session)
+		return false;
+	if (session->policy.max_input_octets &&
+	    session->input_octets >= session->policy.max_input_octets)
+		return true;
+	if (session->policy.max_output_octets &&
+	    session->output_octets >= session->policy.max_output_octets)
+		return true;
+	return total_octets_at_least(session->input_octets,
+				     session->output_octets,
+				     session->policy.max_total_octets);
+}
+
+uint64_t airportal_session_remaining_input_octets(
+	const struct airportal_session *session)
+{
+	if (!session)
+		return 0;
+	return remaining_octets(session->input_octets,
+				session->policy.max_input_octets);
+}
+
+uint64_t airportal_session_remaining_output_octets(
+	const struct airportal_session *session)
+{
+	if (!session)
+		return 0;
+	return remaining_octets(session->output_octets,
+				session->policy.max_output_octets);
+}
+
+uint64_t airportal_session_remaining_total_octets(
+	const struct airportal_session *session)
+{
+	uint64_t input_remaining;
+
+	if (!session || !session->policy.max_total_octets)
+		return 0;
+	if (session->input_octets >= session->policy.max_total_octets ||
+	    session->output_octets >= session->policy.max_total_octets)
+		return 0;
+	input_remaining = session->policy.max_total_octets -
+			  session->input_octets;
+	return session->output_octets >= input_remaining ?
+	       0 : input_remaining - session->output_octets;
+}
+
 struct airportal_session *
 airportal_session_start(struct airportal_session_manager *mgr,
 			struct airportal_client *client,

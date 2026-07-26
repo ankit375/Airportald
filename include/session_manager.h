@@ -39,6 +39,13 @@ void airportal_session_update_octets(struct airportal_session *session,
 				     uint64_t input_octets,
 				     uint64_t output_octets,
 				     uint64_t now_ms);
+bool airportal_session_quota_exceeded(const struct airportal_session *session);
+uint64_t airportal_session_remaining_input_octets(
+	const struct airportal_session *session);
+uint64_t airportal_session_remaining_output_octets(
+	const struct airportal_session *session);
+uint64_t airportal_session_remaining_total_octets(
+	const struct airportal_session *session);
 void airportal_session_stop(struct airportal_session_manager *mgr,
 			    struct airportal_session *session,
 			    enum airportal_client_state final_state,

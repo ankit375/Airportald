@@ -70,13 +70,7 @@ static void expire_due_sessions(struct airportal_daemon *daemon, uint64_t now_ms
 
 		if (!daemon->sessions.used[i])
 			continue;
-		if ((session->policy.max_input_octets &&
-		     session->input_octets >= session->policy.max_input_octets) ||
-		    (session->policy.max_output_octets &&
-		     session->output_octets >= session->policy.max_output_octets) ||
-		    (session->policy.max_total_octets &&
-		     session->input_octets + session->output_octets >=
-		     session->policy.max_total_octets)) {
+		if (airportal_session_quota_exceeded(session)) {
 			final_state = AIRPORTAL_CLIENT_QUOTA_EXCEEDED;
 			reason = "quota_exceeded";
 			daemon->metrics.quota_disconnects++;

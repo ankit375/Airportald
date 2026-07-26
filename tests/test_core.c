@@ -165,6 +165,55 @@ static void test_session_octets_refresh_idle(void)
 	       session->started_at_ms + 70000);
 }
 
+static void test_session_quota(void)
+{
+	struct airportal_client_manager clients;
+	struct airportal_session_manager sessions;
+	struct airportal_client_key key;
+	struct airportal_client *client;
+	struct airportal_session *session;
+	struct airportal_session_policy policy;
+
+	airportal_client_manager_init(&clients);
+	airportal_session_manager_init(&sessions);
+	memset(&key, 0, sizeof(key));
+	assert(airportal_parse_mac("00:11:22:33:44:88", key.mac));
+	key.ifindex = 4;
+	key.portal_id = 36;
+	client = airportal_client_upsert(&clients, &key, "wlan1-1", "guest", "", "");
+	assert(client != NULL);
+
+	memset(&policy, 0, sizeof(policy));
+	policy.session_timeout_sec = 300;
+	policy.max_input_octets = 1000;
+	policy.max_output_octets = 2000;
+	policy.max_total_octets = 2500;
+	policy.allow_ipv4 = true;
+	session = airportal_session_start(&sessions, client, "AP001", "quota",
+					  &policy);
+	assert(session != NULL);
+
+	airportal_session_update_octets(session, 900, 1000,
+					session->started_at_ms + 1000);
+	assert(!airportal_session_quota_exceeded(session));
+	assert(airportal_session_remaining_input_octets(session) == 100);
+	assert(airportal_session_remaining_output_octets(session) == 1000);
+	assert(airportal_session_remaining_total_octets(session) == 600);
+
+	airportal_session_update_octets(session, 1000, 1000,
+					session->started_at_ms + 2000);
+	assert(airportal_session_quota_exceeded(session));
+	assert(airportal_session_remaining_input_octets(session) == 0);
+
+	session->input_octets = UINT64_MAX;
+	session->output_octets = UINT64_MAX;
+	session->policy.max_input_octets = 0;
+	session->policy.max_output_octets = 0;
+	session->policy.max_total_octets = UINT64_MAX;
+	assert(airportal_session_quota_exceeded(session));
+	assert(airportal_session_remaining_total_octets(session) == 0);
+}
+
 static void test_client_ip_lookup(void)
 {
 	struct airportal_client_manager clients;
@@ -241,6 +290,7 @@ int main(void)
 	test_client_session_timeout();
 	test_session_restore();
 	test_session_octets_refresh_idle();
+	test_session_quota();
 	test_client_ip_lookup();
 	test_token_replay();
 	puts("ok");
