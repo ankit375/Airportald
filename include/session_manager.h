@@ -35,6 +35,10 @@ airportal_session_find_by_id(struct airportal_session_manager *mgr,
 struct airportal_session *
 airportal_session_find_by_client(struct airportal_session_manager *mgr,
 				 const struct airportal_client *client);
+void airportal_session_update_octets(struct airportal_session *session,
+				     uint64_t input_octets,
+				     uint64_t output_octets,
+				     uint64_t now_ms);
 void airportal_session_stop(struct airportal_session_manager *mgr,
 			    struct airportal_session *session,
 			    enum airportal_client_state final_state,

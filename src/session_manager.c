@@ -43,6 +43,27 @@ airportal_session_find_by_client(struct airportal_session_manager *mgr,
 	return NULL;
 }
 
+void airportal_session_update_octets(struct airportal_session *session,
+				     uint64_t input_octets,
+				     uint64_t output_octets,
+				     uint64_t now_ms)
+{
+	bool active;
+
+	if (!session)
+		return;
+	active = input_octets > session->input_octets ||
+		 output_octets > session->output_octets;
+	session->input_octets = input_octets;
+	session->output_octets = output_octets;
+	if (!active)
+		return;
+	session->last_activity_ms = now_ms;
+	if (session->policy.idle_timeout_sec)
+		session->idle_expires_at_ms =
+			now_ms + (uint64_t)session->policy.idle_timeout_sec * 1000u;
+}
+
 struct airportal_session *
 airportal_session_start(struct airportal_session_manager *mgr,
 			struct airportal_client *client,

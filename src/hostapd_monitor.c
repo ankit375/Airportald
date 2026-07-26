@@ -160,11 +160,13 @@ static void update_client_octets(struct airportal_daemon *daemon,
 	session = airportal_session_find_by_client(&daemon->sessions, client);
 	if (!session)
 		return;
-	session->input_octets = input_octets >= session->input_octets_base ?
-				input_octets - session->input_octets_base : 0;
-	session->output_octets = output_octets >= session->output_octets_base ?
-				 output_octets - session->output_octets_base : 0;
-	session->last_activity_ms = airportal_monotonic_ms();
+	airportal_session_update_octets(
+		session,
+		input_octets >= session->input_octets_base ?
+		input_octets - session->input_octets_base : 0,
+		output_octets >= session->output_octets_base ?
+		output_octets - session->output_octets_base : 0,
+		airportal_monotonic_ms());
 }
 
 static uint64_t blobmsg_get_uint64_any(struct blob_attr *attr)

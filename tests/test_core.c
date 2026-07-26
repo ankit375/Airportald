@@ -120,6 +120,45 @@ static void test_session_restore(void)
 	assert(sessions.count == 1);
 }
 
+static void test_session_octets_refresh_idle(void)
+{
+	struct airportal_client_manager clients;
+	struct airportal_session_manager sessions;
+	struct airportal_client_key key;
+	struct airportal_client *client;
+	struct airportal_session *session;
+	struct airportal_session_policy policy;
+	uint64_t first_idle_deadline;
+
+	airportal_client_manager_init(&clients);
+	airportal_session_manager_init(&sessions);
+	memset(&key, 0, sizeof(key));
+	assert(airportal_parse_mac("00:11:22:33:44:77", key.mac));
+	key.ifindex = 4;
+	key.portal_id = 36;
+	client = airportal_client_upsert(&clients, &key, "wlan1-1", "guest", "", "");
+	assert(client != NULL);
+
+	memset(&policy, 0, sizeof(policy));
+	policy.session_timeout_sec = 300;
+	policy.idle_timeout_sec = 60;
+	policy.allow_ipv4 = true;
+	session = airportal_session_start(&sessions, client, "AP001", "demo",
+					  &policy);
+	assert(session != NULL);
+	first_idle_deadline = session->idle_expires_at_ms;
+
+	airportal_session_update_octets(session, 0, 0,
+					session->started_at_ms + 10000);
+	assert(session->idle_expires_at_ms == first_idle_deadline);
+
+	airportal_session_update_octets(session, 1, 0,
+					session->started_at_ms + 10000);
+	assert(session->input_octets == 1);
+	assert(session->idle_expires_at_ms ==
+	       session->started_at_ms + 70000);
+}
+
 static void test_client_ip_lookup(void)
 {
 	struct airportal_client_manager clients;
@@ -195,6 +234,7 @@ int main(void)
 	test_config_validation();
 	test_client_session_timeout();
 	test_session_restore();
+	test_session_octets_refresh_idle();
 	test_client_ip_lookup();
 	test_token_replay();
 	puts("ok");

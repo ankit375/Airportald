@@ -18,6 +18,7 @@ enum {
 	AUTH_PORTAL_ID,
 	AUTH_USERNAME,
 	AUTH_SESSION_TIMEOUT,
+	AUTH_IDLE_TIMEOUT,
 	AUTH_UPLOAD_BPS,
 	AUTH_DOWNLOAD_BPS,
 	AUTH_MAX_INPUT_OCTETS,
@@ -32,6 +33,7 @@ static const struct blobmsg_policy auth_policy[__AUTH_MAX] = {
 	[AUTH_PORTAL_ID] = { .name = "portal_id", .type = BLOBMSG_TYPE_INT32 },
 	[AUTH_USERNAME] = { .name = "username", .type = BLOBMSG_TYPE_STRING },
 	[AUTH_SESSION_TIMEOUT] = { .name = "session_timeout", .type = BLOBMSG_TYPE_INT32 },
+	[AUTH_IDLE_TIMEOUT] = { .name = "idle_timeout", .type = BLOBMSG_TYPE_INT32 },
 	[AUTH_UPLOAD_BPS] = { .name = "upload_bps", .type = BLOBMSG_TYPE_UNSPEC },
 	[AUTH_DOWNLOAD_BPS] = { .name = "download_bps", .type = BLOBMSG_TYPE_UNSPEC },
 	[AUTH_MAX_INPUT_OCTETS] = { .name = "max_input_octets", .type = BLOBMSG_TYPE_UNSPEC },
@@ -183,6 +185,10 @@ static int sessions_handler(struct ubus_context *ctx, struct ubus_object *obj,
 		blobmsg_add_u32(&b, "portal_id", s->client->key.portal_id);
 		blobmsg_add_string(&b, "ifname", s->client->ifname);
 		blobmsg_add_u64(&b, "expires_at_ms", s->expires_at_ms);
+		blobmsg_add_u64(&b, "idle_expires_at_ms",
+				s->idle_expires_at_ms);
+		blobmsg_add_u64(&b, "last_activity_ms",
+				s->last_activity_ms);
 		blobmsg_add_u64(&b, "input_octets", s->input_octets);
 		blobmsg_add_u64(&b, "output_octets", s->output_octets);
 		blobmsg_add_u64(&b, "max_input_octets",
@@ -218,6 +224,9 @@ static int authorize_handler(struct ubus_context *ctx, struct ubus_object *obj,
 	if (tb[AUTH_SESSION_TIMEOUT])
 		policy.session_timeout_sec =
 			blobmsg_get_u32(tb[AUTH_SESSION_TIMEOUT]);
+	if (tb[AUTH_IDLE_TIMEOUT])
+		policy.idle_timeout_sec =
+			blobmsg_get_u32(tb[AUTH_IDLE_TIMEOUT]);
 	if (tb[AUTH_UPLOAD_BPS])
 		policy.max_upload_bps = blobmsg_get_u64_any(tb[AUTH_UPLOAD_BPS]);
 	if (tb[AUTH_DOWNLOAD_BPS])
