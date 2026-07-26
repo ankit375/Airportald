@@ -2,6 +2,7 @@
 
 #include "enforcement_manager.h"
 #include "log.h"
+#include "persistence.h"
 
 #include <net/if.h>
 #include <stdlib.h>
@@ -51,6 +52,15 @@ static int handle_connected(struct airportal_daemon *daemon,
 		return -1;
 
 	if (is_new) {
+		int restored = persistence_try_restore_client(daemon, client);
+
+		if (restored > 0) {
+			airportal_format_mac(key.mac, mac_buf, sizeof(mac_buf));
+			ap_log_info("client_restored mac=%s ifname=%s portal_id=%u",
+				    mac_buf, ifname, key.portal_id);
+			daemon->metrics.clients_seen++;
+			return 0;
+		}
 		if (enforcement_install_captive(daemon, client) != 0) {
 			daemon->metrics.policy_install_failures++;
 			return -1;

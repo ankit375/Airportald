@@ -18,6 +18,18 @@ airportal_session_start(struct airportal_session_manager *mgr,
 			const char *username,
 			const struct airportal_session_policy *policy);
 struct airportal_session *
+airportal_session_restore(struct airportal_session_manager *mgr,
+			  struct airportal_client *client,
+			  const char *session_id,
+			  const char *username,
+			  const struct airportal_session_policy *policy,
+			  uint64_t remaining_session_ms,
+			  uint64_t remaining_idle_ms,
+			  uint64_t input_octets_base,
+			  uint64_t output_octets_base,
+			  uint64_t input_octets,
+			  uint64_t output_octets);
+struct airportal_session *
 airportal_session_find_by_id(struct airportal_session_manager *mgr,
 			     const char *session_id);
 struct airportal_session *

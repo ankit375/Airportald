@@ -36,6 +36,7 @@ struct airportal_daemon {
 	void *hostapd_monitor;
 	void *portal_http;
 	void *coa_server;
+	void *persistence;
 };
 
 int airportal_reload(struct airportal_daemon *daemon);

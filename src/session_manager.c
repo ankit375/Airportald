@@ -99,6 +99,70 @@ airportal_session_start(struct airportal_session_manager *mgr,
 	return NULL;
 }
 
+struct airportal_session *
+airportal_session_restore(struct airportal_session_manager *mgr,
+			  struct airportal_client *client,
+			  const char *session_id,
+			  const char *username,
+			  const struct airportal_session_policy *policy,
+			  uint64_t remaining_session_ms,
+			  uint64_t remaining_idle_ms,
+			  uint64_t input_octets_base,
+			  uint64_t output_octets_base,
+			  uint64_t input_octets,
+			  uint64_t output_octets)
+{
+	struct airportal_session *existing;
+	struct airportal_session *session;
+	uint64_t now;
+	size_t i;
+
+	if (!client || !session_id || !session_id[0] || !policy)
+		return NULL;
+
+	existing = airportal_session_find_by_client(mgr, client);
+	if (existing)
+		airportal_session_stop(mgr, existing, AIRPORTAL_CLIENT_CAPTIVE,
+				       "restored_replaced");
+
+	for (i = 0; i < AIRPORTAL_MAX_SESSIONS; i++) {
+		if (mgr->used[i])
+			continue;
+
+		now = airportal_monotonic_ms();
+		mgr->used[i] = true;
+		mgr->count++;
+		session = &mgr->sessions[i];
+		memset(session, 0, sizeof(*session));
+		snprintf(session->session_id, sizeof(session->session_id), "%s",
+			 session_id);
+		session->client = client;
+		session->policy = *policy;
+		session->started_at_ms = now;
+		session->last_activity_ms = now;
+		session->input_octets_base = input_octets_base;
+		session->output_octets_base = output_octets_base;
+		session->input_octets = input_octets;
+		session->output_octets = output_octets;
+		if (remaining_session_ms)
+			session->expires_at_ms = now + remaining_session_ms;
+		if (remaining_idle_ms)
+			session->idle_expires_at_ms = now + remaining_idle_ms;
+		session->restored_after_restart = true;
+
+		client->state = AIRPORTAL_CLIENT_AUTHENTICATED;
+		client->authenticated_at_ms = now;
+		snprintf(client->username, sizeof(client->username), "%s",
+			 username ? username : "restored");
+		snprintf(client->session_id, sizeof(client->session_id), "%s",
+			 session->session_id);
+		return session;
+	}
+
+	ap_log_error("session_table_full max=%u", AIRPORTAL_MAX_SESSIONS);
+	return NULL;
+}
+
 void airportal_session_stop(struct airportal_session_manager *mgr,
 			    struct airportal_session *session,
 			    enum airportal_client_state final_state,

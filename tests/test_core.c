@@ -87,6 +87,39 @@ static void test_client_session_timeout(void)
 	assert(sessions.count == 0);
 }
 
+static void test_session_restore(void)
+{
+	struct airportal_client_manager clients;
+	struct airportal_session_manager sessions;
+	struct airportal_client_key key;
+	struct airportal_client *client;
+	struct airportal_session *session;
+	struct airportal_session_policy policy;
+
+	airportal_client_manager_init(&clients);
+	airportal_session_manager_init(&sessions);
+	memset(&key, 0, sizeof(key));
+	assert(airportal_parse_mac("00:11:22:33:44:66", key.mac));
+	key.ifindex = 4;
+	key.portal_id = 36;
+	client = airportal_client_upsert(&clients, &key, "wlan1-1", "guest", "", "");
+	assert(client != NULL);
+
+	memset(&policy, 0, sizeof(policy));
+	policy.session_timeout_sec = 300;
+	policy.idle_timeout_sec = 60;
+	policy.allow_ipv4 = true;
+	session = airportal_session_restore(&sessions, client, "AP001-99",
+					    "demo", &policy, 300000, 60000,
+					    10, 20, 30, 40);
+	assert(session != NULL);
+	assert(strcmp(session->session_id, "AP001-99") == 0);
+	assert(session->restored_after_restart);
+	assert(client->state == AIRPORTAL_CLIENT_AUTHENTICATED);
+	assert(strcmp(client->username, "demo") == 0);
+	assert(sessions.count == 1);
+}
+
 static void test_client_ip_lookup(void)
 {
 	struct airportal_client_manager clients;
@@ -161,6 +194,7 @@ int main(void)
 	test_mac_and_key();
 	test_config_validation();
 	test_client_session_timeout();
+	test_session_restore();
 	test_client_ip_lookup();
 	test_token_replay();
 	puts("ok");
