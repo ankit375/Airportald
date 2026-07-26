@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -157,6 +158,59 @@ static int nft_set_client_element(const char *op,
 	return run_nft_script(script);
 }
 
+static bool append_walled_ipv4(char *buf, size_t buf_len, size_t *used,
+			       bool *first, const char *value)
+{
+	int n;
+
+	if (!buf || buf_len == 0)
+		return false;
+	n = snprintf(buf + *used, buf_len - *used, "%s%s",
+		     *first ? "" : ", ", value);
+	if (n < 0)
+		return false;
+	if ((size_t)n >= buf_len - *used) {
+		buf[buf_len - 1] = '\0';
+		return false;
+	}
+	*used += (size_t)n;
+	*first = false;
+	return true;
+}
+
+static void append_domain_ipv4(const char *domain, char *buf, size_t buf_len,
+			       size_t *used, bool *first)
+{
+	struct addrinfo hints;
+	struct addrinfo *res = NULL;
+	struct addrinfo *ai;
+	int rc;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	rc = getaddrinfo(domain, NULL, &hints, &res);
+	if (rc != 0) {
+		ap_log_warn("walled_garden_resolve_failed domain=%s error=%s",
+			    domain, gai_strerror(rc));
+		return;
+	}
+	for (ai = res; ai; ai = ai->ai_next) {
+		const struct sockaddr_in *sin =
+			(const struct sockaddr_in *)ai->ai_addr;
+		char addr[INET_ADDRSTRLEN];
+
+		if (!sin || !inet_ntop(AF_INET, &sin->sin_addr, addr,
+				       sizeof(addr)))
+			continue;
+		if (!append_walled_ipv4(buf, buf_len, used, first, addr))
+			break;
+		ap_log_info("walled_garden_resolved domain=%s ip=%s",
+			    domain, addr);
+	}
+	freeaddrinfo(res);
+}
+
 static void build_walled_ipv4_elements(const struct airportal_config *config,
 				       char *buf, size_t buf_len)
 {
@@ -174,21 +228,17 @@ static void build_walled_ipv4_elements(const struct airportal_config *config,
 	for (i = 0; i < config->walled_garden_count; i++) {
 		const struct airportal_walled_garden_config *wg =
 			&config->walled_gardens[i];
-		int n;
 
-		if (strcmp(wg->type, "ip") != 0 ||
-		    inet_pton(AF_INET, wg->value, &addr) != 1)
+		if (strcmp(wg->type, "ip") == 0 &&
+		    inet_pton(AF_INET, wg->value, &addr) == 1) {
+			if (!append_walled_ipv4(buf, buf_len, &used, &first,
+					       wg->value))
+				return;
 			continue;
-		n = snprintf(buf + used, buf_len - used, "%s%s",
-			     first ? "" : ", ", wg->value);
-		if (n < 0)
-			return;
-		if ((size_t)n >= buf_len - used) {
-			buf[buf_len - 1] = '\0';
-			return;
 		}
-		used += (size_t)n;
-		first = false;
+		if (strcmp(wg->type, "domain") == 0 && wg->value[0])
+			append_domain_ipv4(wg->value, buf, buf_len, &used,
+					   &first);
 	}
 }
 
@@ -206,7 +256,7 @@ int nft_manager_install_base_rules(struct nft_manager *mgr,
 				   uint16_t portal_port)
 {
 	char script[4096];
-	char walled_ipv4[1024];
+	char walled_ipv4[2048];
 
 	mgr->portal_port = portal_port;
 	build_walled_ipv4_elements(config, walled_ipv4, sizeof(walled_ipv4));
