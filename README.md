@@ -98,7 +98,9 @@ make package/feeds/airportald/compile
 ```
 
 See [docs/working-flow.md](docs/working-flow.md) for the validated AP flow,
-runtime packages, RADIUS/UAM/CoA behavior, and test commands.
+runtime packages, RADIUS/UAM/CoA behavior, and test commands. See
+[docs/packet-flow.md](docs/packet-flow.md) for the nftables, tc, hostapd, and
+RADIUS packet path.
 
 Install on target:
 
