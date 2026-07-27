@@ -24,6 +24,7 @@
 #define RADIUS_ATTR_USER_PASSWORD 2
 #define RADIUS_ATTR_SERVICE_TYPE 6
 #define RADIUS_ATTR_FILTER_ID 11
+#define RADIUS_ATTR_REPLY_MESSAGE 18
 #define RADIUS_ATTR_FRAMED_MTU 12
 #define RADIUS_ATTR_CLASS 25
 #define RADIUS_ATTR_VENDOR_SPECIFIC 26
@@ -351,6 +352,32 @@ static void parse_accept_attrs(const uint8_t *attrs, size_t len,
 	}
 }
 
+static void parse_reply_message(const uint8_t *attrs, size_t len,
+				char *message, size_t message_len)
+{
+	size_t offset = 0;
+
+	if (!message || message_len == 0)
+		return;
+	message[0] = '\0';
+	while (offset + 2 <= len) {
+		uint8_t type = attrs[offset];
+		uint8_t attr_len = attrs[offset + 1];
+		const uint8_t *value;
+		size_t value_len;
+
+		if (attr_len < 2 || offset + attr_len > len)
+			break;
+		value = attrs + offset + 2;
+		value_len = attr_len - 2;
+		if (type == RADIUS_ATTR_REPLY_MESSAGE) {
+			copy_radius_text(message, message_len, value, value_len);
+			return;
+		}
+		offset += attr_len;
+	}
+}
+
 static bool build_access_request(const struct airportal_daemon *daemon,
 				 const struct airportal_radius_config *radius,
 				 const struct airportal_client *client,
@@ -409,6 +436,10 @@ radius_client_authenticate(struct airportal_daemon *daemon,
 	if (!build_access_request(daemon, radius, client, username, password,
 				  secret, &packet))
 		return RADIUS_AUTH_ERROR;
+	ap_log_info("radius_auth_request username=%s server=%s nas_identifier=%s",
+		    username, radius->auth_server,
+		    radius->nas_identifier[0] ? radius->nas_identifier :
+		    daemon->config.global.device_id);
 	request_len = packet_serialize(&packet, request, sizeof(request));
 	if (request_len == 0)
 		return RADIUS_AUTH_ERROR;
@@ -451,6 +482,13 @@ radius_client_authenticate(struct airportal_daemon *daemon,
 		}
 		if (response[0] == RADIUS_CODE_ACCESS_REJECT ||
 		    response[0] == RADIUS_CODE_ACCESS_CHALLENGE) {
+			char reply_message[128];
+
+			parse_reply_message(response + 20, (size_t)n - 20,
+					    reply_message, sizeof(reply_message));
+			ap_log_warn("radius_auth_reject username=%s code=%u reply=%s",
+				    username, response[0],
+				    reply_message[0] ? reply_message : "-");
 			result = RADIUS_AUTH_REJECT;
 			break;
 		}
