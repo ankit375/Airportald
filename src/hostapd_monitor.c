@@ -20,10 +20,10 @@ struct hostapd_monitor_state {
 	ev_timer poll_timer;
 };
 
-static void prune_disconnected_duplicates(struct airportal_daemon *daemon,
-					  const uint8_t mac[6],
-					  const char *ifname,
-					  uint32_t portal_id)
+static void prune_stale_duplicates(struct airportal_daemon *daemon,
+				   const uint8_t mac[6],
+				   const char *ifname,
+				   uint32_t portal_id)
 {
 	size_t i;
 
@@ -32,16 +32,18 @@ static void prune_disconnected_duplicates(struct airportal_daemon *daemon,
 		char mac_buf[18];
 
 		if (!daemon->clients.used[i] ||
-		    client->state != AIRPORTAL_CLIENT_DISCONNECTED ||
 		    client->key.portal_id != portal_id ||
 		    memcmp(client->key.mac, mac, 6) != 0 ||
 		    strcmp(client->ifname, ifname) == 0)
 			continue;
+		if (airportal_session_find_by_client(&daemon->sessions, client))
+			continue;
 
 		enforcement_remove(daemon, client);
 		airportal_format_mac(client->key.mac, mac_buf, sizeof(mac_buf));
-		ap_log_info("client_pruned_stale mac=%s old_ifname=%s new_ifname=%s portal_id=%u",
-			    mac_buf, client->ifname, ifname, portal_id);
+		ap_log_info("client_pruned_stale mac=%s old_ifname=%s new_ifname=%s old_state=%s portal_id=%u",
+			    mac_buf, client->ifname, ifname,
+			    airportal_client_state_name(client->state), portal_id);
 		airportal_client_remove(&daemon->clients, client);
 	}
 }
@@ -70,7 +72,7 @@ static int handle_connected(struct airportal_daemon *daemon,
 		return -1;
 	key.ifindex = if_nametoindex(ifname);
 	key.portal_id = portal->portal_id;
-	prune_disconnected_duplicates(daemon, key.mac, ifname, key.portal_id);
+	prune_stale_duplicates(daemon, key.mac, ifname, key.portal_id);
 
 	client = airportal_client_find(&daemon->clients, &key);
 	is_new = !client || client->state == AIRPORTAL_CLIENT_DISCONNECTED;
