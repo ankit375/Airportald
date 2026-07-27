@@ -299,6 +299,9 @@ int airportal_disconnect_client(struct airportal_daemon *daemon,
 	}
 	if (return_client_to_captive(daemon, client) != 0)
 		return -1;
+	if (reason && strcmp(reason, "coa_disconnect") == 0)
+		hostapd_monitor_deauth_client(daemon, client->ifname,
+					      client->key.mac, reason);
 	daemon->metrics.disconnect_requests++;
 	return 0;
 }

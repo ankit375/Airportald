@@ -8,5 +8,9 @@ void hostapd_monitor_shutdown(struct airportal_daemon *daemon);
 int hostapd_monitor_handle_event(struct airportal_daemon *daemon,
 				 const char *ifname,
 				 const char *event);
+int hostapd_monitor_deauth_client(struct airportal_daemon *daemon,
+				  const char *ifname,
+				  const uint8_t mac[6],
+				  const char *reason);
 
 #endif

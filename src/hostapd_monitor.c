@@ -11,6 +11,7 @@
 
 #ifdef AIRPORTAL_OPENWRT
 #include <libubox/blobmsg.h>
+#include <libubox/blobmsg_json.h>
 #include <libubus.h>
 #endif
 
@@ -338,5 +339,55 @@ void hostapd_monitor_shutdown(struct airportal_daemon *daemon)
 	daemon->hostapd_monitor = NULL;
 #else
 	(void)daemon;
+#endif
+}
+
+int hostapd_monitor_deauth_client(struct airportal_daemon *daemon,
+				  const char *ifname,
+				  const uint8_t mac[6],
+				  const char *reason)
+{
+#ifdef AIRPORTAL_OPENWRT
+	struct blob_buf req = { 0 };
+	char object[96];
+	char mac_text[18];
+	uint32_t id;
+	int rc;
+
+	if (!daemon || !daemon->ubus || !ifname || !ifname[0] || !mac)
+		return -1;
+
+	snprintf(object, sizeof(object), "hostapd.%s", ifname);
+	if (ubus_lookup_id(daemon->ubus, object, &id) != 0) {
+		ap_log_warn("hostapd_deauth_failed reason=object_unavailable ifname=%s",
+			    ifname);
+		return -1;
+	}
+
+	airportal_format_mac(mac, mac_text, sizeof(mac_text));
+	blob_buf_init(&req, 0);
+	blobmsg_add_string(&req, "addr", mac_text);
+	blobmsg_add_u32(&req, "reason", 5);
+	blobmsg_add_u8(&req, "deauth", true);
+	blobmsg_add_u32(&req, "ban_time", 1);
+
+	rc = ubus_invoke(daemon->ubus, id, "del_client", req.head, NULL, NULL,
+			 1000);
+	blob_buf_free(&req);
+	if (rc != 0) {
+		ap_log_warn("hostapd_deauth_failed mac=%s ifname=%s ubus_rc=%d",
+			    mac_text, ifname, rc);
+		return -1;
+	}
+
+	ap_log_info("hostapd_deauth_sent mac=%s ifname=%s reason=%s",
+		    mac_text, ifname, reason ? reason : "disconnect");
+	return 0;
+#else
+	(void)daemon;
+	(void)ifname;
+	(void)mac;
+	(void)reason;
+	return 0;
 #endif
 }
