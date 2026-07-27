@@ -21,6 +21,7 @@ struct airportal_daemon {
 	ev_timer timeout_watcher;
 
 	uint64_t started_at_ms;
+	uint64_t last_walled_garden_refresh_ms;
 	bool shutting_down;
 
 	struct airportal_config config;
@@ -51,5 +52,9 @@ int airportal_disconnect_client(struct airportal_daemon *daemon,
 				const char *ifname,
 				uint32_t portal_id,
 				const char *reason);
+int airportal_update_client_policy(struct airportal_daemon *daemon,
+				   struct airportal_client *client,
+				   const struct airportal_session_policy *policy,
+				   const char *reason);
 
 #endif

@@ -23,6 +23,8 @@ int nft_manager_init(struct nft_manager *mgr, bool dry_run);
 int nft_manager_install_base_rules(struct nft_manager *mgr,
 				   const struct airportal_config *config,
 				   uint16_t portal_port);
+int nft_manager_refresh_walled_garden(struct nft_manager *mgr,
+				      const struct airportal_config *config);
 int nft_manager_add_captive_client(struct nft_manager *mgr,
 				   const struct airportal_client *client);
 int nft_manager_authorize_client(struct nft_manager *mgr,

@@ -46,6 +46,7 @@ endef
 define Package/airportal/install
 	$(INSTALL_DIR) $(1)/usr/sbin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/airportald $(1)/usr/sbin/
+	$(INSTALL_BIN) ./files/usr/sbin/airportal-coova-import $(1)/usr/sbin/
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/etc/config/airportal $(1)/etc/config/airportal
 	$(INSTALL_DIR) $(1)/etc/init.d

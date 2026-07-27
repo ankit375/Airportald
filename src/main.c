@@ -18,6 +18,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define WALLED_GARDEN_REFRESH_INTERVAL_MS 300000u
+
 static void stop_loop(struct airportal_daemon *daemon)
 {
 	if (daemon->shutting_down)
@@ -129,6 +131,18 @@ static void send_due_accounting_updates(struct airportal_daemon *daemon,
 	}
 }
 
+static void refresh_walled_garden_if_due(struct airportal_daemon *daemon,
+					 uint64_t now_ms)
+{
+	if (daemon->last_walled_garden_refresh_ms &&
+	    now_ms < daemon->last_walled_garden_refresh_ms +
+		     WALLED_GARDEN_REFRESH_INTERVAL_MS)
+		return;
+	if (nft_manager_refresh_walled_garden(&daemon->nft,
+					      &daemon->config) == 0)
+		daemon->last_walled_garden_refresh_ms = now_ms;
+}
+
 static void timeout_cb(EV_P_ ev_timer *w, int revents)
 {
 	struct airportal_daemon *daemon = (struct airportal_daemon *)w->data;
@@ -138,6 +152,7 @@ static void timeout_cb(EV_P_ ev_timer *w, int revents)
 	(void)revents;
 	expire_due_sessions(daemon, now_ms);
 	send_due_accounting_updates(daemon, now_ms);
+	refresh_walled_garden_if_due(daemon, now_ms);
 }
 
 int airportal_reload(struct airportal_daemon *daemon)
@@ -155,6 +170,9 @@ int airportal_reload(struct airportal_daemon *daemon)
 	airportal_log_init(daemon->config.global.log_level);
 	ap_log_info("config_reload_success portals=%zu bindings=%zu",
 		    daemon->config.portal_count, daemon->config.binding_count);
+	if (nft_manager_refresh_walled_garden(&daemon->nft,
+					      &daemon->config) == 0)
+		daemon->last_walled_garden_refresh_ms = airportal_monotonic_ms();
 	return 0;
 }
 
@@ -216,6 +234,41 @@ int airportal_authorize_client(struct airportal_daemon *daemon,
 	}
 	daemon->metrics.auth_accepts++;
 	daemon->metrics.sessions_started++;
+	return 0;
+}
+
+int airportal_update_client_policy(struct airportal_daemon *daemon,
+				   struct airportal_client *client,
+				   const struct airportal_session_policy *policy,
+				   const char *reason)
+{
+	struct airportal_session *session;
+	uint64_t now_ms;
+
+	if (!daemon || !client || !policy)
+		return -1;
+	session = airportal_session_find_by_client(&daemon->sessions, client);
+	if (!session)
+		return -1;
+	if (enforcement_authorize(daemon, client, policy) != 0) {
+		daemon->metrics.policy_install_failures++;
+		return -1;
+	}
+	now_ms = airportal_monotonic_ms();
+	airportal_session_update_policy(session, policy, now_ms);
+	session->policy_installed = true;
+	ap_log_info("session_policy_update session_id=%s mac=%02X:%02X:%02X:%02X:%02X:%02X ifname=%s portal_id=%u reason=%s upload_bps=%llu download_bps=%llu max_input_octets=%llu max_output_octets=%llu max_total_octets=%llu session_timeout=%u idle_timeout=%u",
+		    session->session_id,
+		    client->key.mac[0], client->key.mac[1], client->key.mac[2],
+		    client->key.mac[3], client->key.mac[4], client->key.mac[5],
+		    client->ifname, client->key.portal_id,
+		    reason ? reason : "policy_update",
+		    (unsigned long long)policy->max_upload_bps,
+		    (unsigned long long)policy->max_download_bps,
+		    (unsigned long long)policy->max_input_octets,
+		    (unsigned long long)policy->max_output_octets,
+		    (unsigned long long)policy->max_total_octets,
+		    policy->session_timeout_sec, policy->idle_timeout_sec);
 	return 0;
 }
 

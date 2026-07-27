@@ -302,6 +302,34 @@ int nft_manager_install_base_rules(struct nft_manager *mgr,
 	return 0;
 }
 
+int nft_manager_refresh_walled_garden(struct nft_manager *mgr,
+				      const struct airportal_config *config)
+{
+	char script[4096];
+	char walled_ipv4[2048];
+
+	if (!mgr || !mgr->ready)
+		return -1;
+	build_walled_ipv4_elements(config, walled_ipv4, sizeof(walled_ipv4));
+	if (mgr->dry_run)
+		return 0;
+	if (walled_ipv4[0])
+		snprintf(script, sizeof(script),
+			 "flush set inet " AIRPORTAL_NFT_TABLE " walled_ipv4\n"
+			 "add element inet " AIRPORTAL_NFT_TABLE
+			 " walled_ipv4 { %s }\n",
+			 walled_ipv4);
+	else
+		snprintf(script, sizeof(script),
+			 "flush set inet " AIRPORTAL_NFT_TABLE " walled_ipv4\n");
+	if (run_nft_script(script) != 0) {
+		ap_log_warn("walled_garden_refresh_failed");
+		return -1;
+	}
+	ap_log_info("walled_garden_refresh_success");
+	return 0;
+}
+
 int nft_manager_add_captive_client(struct nft_manager *mgr,
 				   const struct airportal_client *client)
 {

@@ -17,8 +17,11 @@
 #define RADIUS_CODE_ACCOUNTING_RESPONSE 5
 
 #define RADIUS_ATTR_USER_NAME 1
+#define RADIUS_ATTR_NAS_PORT 5
 #define RADIUS_ATTR_SERVICE_TYPE 6
+#define RADIUS_ATTR_FRAMED_IP_ADDRESS 8
 #define RADIUS_ATTR_FRAMED_MTU 12
+#define RADIUS_ATTR_FILTER_ID 11
 #define RADIUS_ATTR_CLASS 25
 #define RADIUS_ATTR_CALLED_STATION_ID 30
 #define RADIUS_ATTR_CALLING_STATION_ID 31
@@ -29,14 +32,22 @@
 #define RADIUS_ATTR_ACCT_SESSION_ID 44
 #define RADIUS_ATTR_ACCT_SESSION_TIME 46
 #define RADIUS_ATTR_ACCT_TERMINATE_CAUSE 49
+#define RADIUS_ATTR_ACCT_INPUT_GIGAWORDS 52
+#define RADIUS_ATTR_ACCT_OUTPUT_GIGAWORDS 53
+#define RADIUS_ATTR_EVENT_TIMESTAMP 55
 #define RADIUS_ATTR_NAS_PORT_TYPE 61
 
 #define RADIUS_ACCT_STATUS_START 1
 #define RADIUS_ACCT_STATUS_STOP 2
 #define RADIUS_ACCT_STATUS_INTERIM_UPDATE 3
 #define RADIUS_ACCT_TERMINATE_USER_REQUEST 1
+#define RADIUS_ACCT_TERMINATE_LOST_CARRIER 2
+#define RADIUS_ACCT_TERMINATE_LOST_SERVICE 3
+#define RADIUS_ACCT_TERMINATE_IDLE_TIMEOUT 4
 #define RADIUS_ACCT_TERMINATE_SESSION_TIMEOUT 5
 #define RADIUS_ACCT_TERMINATE_ADMIN_RESET 6
+#define RADIUS_ACCT_TERMINATE_NAS_REBOOT 11
+#define RADIUS_ACCT_TERMINATE_SERVICE_UNAVAILABLE 15
 #define RADIUS_SERVICE_TYPE_LOGIN 1
 #define RADIUS_NAS_PORT_TYPE_WIRELESS_80211 19
 #define RADIUS_PACKET_MAX 4096
@@ -222,8 +233,20 @@ static uint32_t terminate_cause_for_reason(const char *reason)
 {
 	if (reason && strcmp(reason, "session_timeout") == 0)
 		return RADIUS_ACCT_TERMINATE_SESSION_TIMEOUT;
+	if (reason && strcmp(reason, "idle_timeout") == 0)
+		return RADIUS_ACCT_TERMINATE_IDLE_TIMEOUT;
+	if (reason && strcmp(reason, "quota_exceeded") == 0)
+		return RADIUS_ACCT_TERMINATE_SERVICE_UNAVAILABLE;
+	if (reason && strcmp(reason, "coa_disconnect") == 0)
+		return RADIUS_ACCT_TERMINATE_ADMIN_RESET;
 	if (reason && strcmp(reason, "admin_disconnect") == 0)
 		return RADIUS_ACCT_TERMINATE_ADMIN_RESET;
+	if (reason && strcmp(reason, "disassociated") == 0)
+		return RADIUS_ACCT_TERMINATE_LOST_CARRIER;
+	if (reason && strcmp(reason, "daemon_shutdown") == 0)
+		return RADIUS_ACCT_TERMINATE_NAS_REBOOT;
+	if (reason && strcmp(reason, "enforcement_failed") == 0)
+		return RADIUS_ACCT_TERMINATE_LOST_SERVICE;
 	return RADIUS_ACCT_TERMINATE_USER_REQUEST;
 }
 
@@ -236,6 +259,7 @@ static bool build_accounting_request(struct airportal_daemon *daemon,
 	char mac[18];
 	uint64_t now = airportal_monotonic_ms();
 	uint32_t elapsed = 0;
+	uint32_t event_timestamp = (uint32_t)airportal_wall_time_sec();
 
 	memset(packet, 0, sizeof(*packet));
 	packet->code = RADIUS_CODE_ACCOUNTING_REQUEST;
@@ -251,6 +275,8 @@ static bool build_accounting_request(struct airportal_daemon *daemon,
 	    !packet_add_string(packet, RADIUS_ATTR_ACCT_SESSION_ID,
 			       session->session_id) ||
 	    !packet_add_u32(packet, RADIUS_ATTR_ACCT_STATUS_TYPE, status_type) ||
+	    !packet_add_u32(packet, RADIUS_ATTR_NAS_PORT,
+			    session->client->key.ifindex) ||
 	    !packet_add_string(packet, RADIUS_ATTR_CALLING_STATION_ID, mac) ||
 	    !packet_add_string(packet, RADIUS_ATTR_CALLED_STATION_ID,
 			       session->client->bssid[0] ?
@@ -263,9 +289,20 @@ static bool build_accounting_request(struct airportal_daemon *daemon,
 			    RADIUS_SERVICE_TYPE_LOGIN) ||
 	    !packet_add_u32(packet, RADIUS_ATTR_NAS_PORT_TYPE,
 			    RADIUS_NAS_PORT_TYPE_WIRELESS_80211) ||
-	    !packet_add_u32(packet, RADIUS_ATTR_FRAMED_MTU, 1500))
+	    !packet_add_u32(packet, RADIUS_ATTR_FRAMED_MTU, 1500) ||
+	    !packet_add_u32(packet, RADIUS_ATTR_EVENT_TIMESTAMP,
+			    event_timestamp))
 		return false;
 
+	if (session->client->has_ipv4 &&
+	    !packet_add_attr(packet, RADIUS_ATTR_FRAMED_IP_ADDRESS,
+			     &session->client->ipv4.s_addr,
+			     sizeof(session->client->ipv4.s_addr)))
+		return false;
+	if (session->policy.filter_id[0] &&
+	    !packet_add_string(packet, RADIUS_ATTR_FILTER_ID,
+			       session->policy.filter_id))
+		return false;
 	if (session->policy.radius_class[0] &&
 	    !packet_add_string(packet, RADIUS_ATTR_CLASS,
 			       session->policy.radius_class))
@@ -276,6 +313,10 @@ static bool build_accounting_request(struct airportal_daemon *daemon,
 				    (uint32_t)session->input_octets) ||
 		    !packet_add_u32(packet, RADIUS_ATTR_ACCT_OUTPUT_OCTETS,
 				    (uint32_t)session->output_octets) ||
+		    !packet_add_u32(packet, RADIUS_ATTR_ACCT_INPUT_GIGAWORDS,
+				    (uint32_t)(session->input_octets >> 32)) ||
+		    !packet_add_u32(packet, RADIUS_ATTR_ACCT_OUTPUT_GIGAWORDS,
+				    (uint32_t)(session->output_octets >> 32)) ||
 		    !packet_add_u32(packet, RADIUS_ATTR_ACCT_SESSION_TIME,
 				    elapsed))
 			return false;

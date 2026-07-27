@@ -1,0 +1,87 @@
+#!/bin/sh
+
+set -eu
+
+usage() {
+	echo "usage: airportal-coova-import <coova.conf> [portal-name]" >&2
+	exit 1
+}
+
+quote_uci() {
+	printf "%s" "$1" | sed "s/'/'\\\\''/g"
+}
+
+is_ipv4() {
+	echo "$1" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'
+}
+
+file="${1:-}"
+portal="${2:-guest}"
+[ -n "$file" ] && [ -r "$file" ] || usage
+
+radius_profile="main"
+secret_file="/etc/airportal/secrets/radius-${radius_profile}"
+mkdir -p /etc/airportal/secrets
+
+uci set "airportal.${portal}.auth_mode=radius"
+uci set "airportal.${portal}.radius_profile=${radius_profile}"
+uci set "airportal.${radius_profile}=radius"
+uci set "airportal.${radius_profile}.secret_file=${secret_file}"
+
+while IFS= read -r line || [ -n "$line" ]; do
+	line="${line%%#*}"
+	line="$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+	[ -n "$line" ] || continue
+
+	key="${line%%[[:space:]]*}"
+	value="${line#"$key"}"
+	value="$(echo "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+	value="$(echo "$value" | sed -e "s/^'//" -e "s/'$//" -e 's/^"//' -e 's/"$//')"
+
+	case "$key" in
+	radiusserver1)
+		uci set "airportal.${radius_profile}.auth_server=$(quote_uci "$value")"
+		uci set "airportal.${radius_profile}.acct_server=$(quote_uci "$value")"
+		;;
+	radiusserver2)
+		: # reserved for future secondary radius profile support
+		;;
+	radiusauthport)
+		uci set "airportal.${radius_profile}.auth_port=$(quote_uci "$value")"
+		;;
+	radiusacctport)
+		uci set "airportal.${radius_profile}.acct_port=$(quote_uci "$value")"
+		;;
+	radiussecret)
+		umask 077
+		printf "%s" "$value" > "$secret_file"
+		;;
+	coaport)
+		uci set "airportal.global.coa_port=$(quote_uci "$value")"
+		uci set "airportal.${radius_profile}.coa_port=$(quote_uci "$value")"
+		;;
+	uamserver)
+		uci set "airportal.${portal}.portal_url=$(quote_uci "$value")"
+		;;
+	radiusnasid)
+		uci set "airportal.${radius_profile}.nas_identifier=$(quote_uci "$value")"
+		;;
+	uamsecret)
+		uci set "airportal.${portal}.uam_secret=$(quote_uci "$value")"
+		;;
+	uamallowed)
+		section="$(uci add airportal walled_garden)"
+		uci set "airportal.${section}.portal=${portal}"
+		if is_ipv4 "$value"; then
+			uci set "airportal.${section}.type=ip"
+		else
+			uci set "airportal.${section}.type=domain"
+		fi
+		uci set "airportal.${section}.value=$(quote_uci "$value")"
+		;;
+	esac
+done < "$file"
+
+uci commit airportal
+echo "Imported Coova-style config into AirPortal portal '${portal}'."
+echo "Restart with: /etc/init.d/airportal restart"
