@@ -100,7 +100,8 @@ make package/feeds/airportald/compile
 See [docs/working-flow.md](docs/working-flow.md) for the validated AP flow,
 runtime packages, RADIUS/UAM/CoA behavior, and test commands. See
 [docs/packet-flow.md](docs/packet-flow.md) for the nftables, tc, hostapd, and
-RADIUS packet path.
+RADIUS packet path. See [docs/stress-test-plan.md](docs/stress-test-plan.md)
+for the full AP stress test checklist.
 
 Install on target:
 
