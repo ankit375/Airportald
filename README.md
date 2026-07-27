@@ -93,8 +93,12 @@ make -C tests clean check
 OpenWrt package build from the tree root:
 
 ```sh
-make package/feeds/airportald/airportal/{clean,compile} V=s
+make package/feeds/airportald/clean
+make package/feeds/airportald/compile
 ```
+
+See [docs/working-flow.md](docs/working-flow.md) for the validated AP flow,
+runtime packages, RADIUS/UAM/CoA behavior, and test commands.
 
 Install on target:
 
