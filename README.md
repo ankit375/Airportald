@@ -101,7 +101,9 @@ See [docs/working-flow.md](docs/working-flow.md) for the validated AP flow,
 runtime packages, RADIUS/UAM/CoA behavior, and test commands. See
 [docs/packet-flow.md](docs/packet-flow.md) for the nftables, tc, hostapd, and
 RADIUS packet path. See [docs/stress-test-plan.md](docs/stress-test-plan.md)
-for the full AP stress test checklist.
+for the full AP stress test checklist. See
+[docs/coova-chilli-comparison.md](docs/coova-chilli-comparison.md) for the
+Coova-Chilli feature comparison.
 
 Install on target:
 
