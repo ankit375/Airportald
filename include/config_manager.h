@@ -54,6 +54,7 @@ struct airportal_radius_config {
 	char acct_server[64];
 	uint16_t acct_port;
 	char coa_bind[64];
+	char coa_source[64];
 	uint16_t coa_port;
 	char secret_file[128];
 	char nas_identifier[64];

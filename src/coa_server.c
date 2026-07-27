@@ -187,6 +187,11 @@ coa_radius_profile(const struct airportal_config *config,
 
 		if (radius->coa_port != config->global.coa_port)
 			continue;
+		if (radius->coa_source[0]) {
+			if (radius_host_matches_peer(radius->coa_source, peer_ip))
+				return &config->radius[i];
+			continue;
+		}
 		if (radius_host_matches_peer(radius->auth_server, peer_ip) ||
 		    radius_host_matches_peer(radius->acct_server, peer_ip))
 			return &config->radius[i];
@@ -523,9 +528,14 @@ static void handle_coa_packet(struct coa_server_state *state,
 	radius = coa_radius_profile(&daemon->config, peer);
 	if (!radius || read_secret(radius->secret_file, secret, sizeof(secret)) != 0)
 		return;
-	if (!parse_coa_request(packet, packet_len, &request) ||
-	    !verify_request_authenticator(packet, packet_len, secret))
+	if (!parse_coa_request(packet, packet_len, &request)) {
+		ap_log_warn("coa_request_rejected reason=parse_failed");
 		return;
+	}
+	if (!verify_request_authenticator(packet, packet_len, secret)) {
+		ap_log_warn("coa_request_rejected reason=bad_authenticator");
+		return;
+	}
 	parse_coa_policy_attrs(&request);
 
 	daemon->metrics.coa_requests++;

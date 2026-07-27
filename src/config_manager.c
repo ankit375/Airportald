@@ -375,6 +375,8 @@ int airportal_config_load(struct airportal_config *cfg, const char *package)
 								     1813);
 			snprintf(radius->coa_bind, sizeof(radius->coa_bind), "%s",
 				 uci_lookup_string(ctx, s, "coa_bind"));
+			snprintf(radius->coa_source, sizeof(radius->coa_source), "%s",
+				 uci_lookup_string(ctx, s, "coa_source"));
 			radius->coa_port = (uint16_t)uci_lookup_u32(ctx, s, "coa_port",
 								    3799);
 			snprintf(radius->secret_file, sizeof(radius->secret_file), "%s",
