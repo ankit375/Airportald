@@ -36,6 +36,8 @@ airportal_client_find_unique_by_mac_state(struct airportal_client_manager *mgr,
 void airportal_client_set_ipv4(struct airportal_client *client,
 			       struct in_addr ipv4);
 void airportal_client_mark_disconnected(struct airportal_client *client);
+void airportal_client_remove(struct airportal_client_manager *mgr,
+			     struct airportal_client *client);
 size_t airportal_client_count_state(const struct airportal_client_manager *mgr,
 				    enum airportal_client_state state);
 

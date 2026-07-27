@@ -155,6 +155,24 @@ void airportal_client_mark_disconnected(struct airportal_client *client)
 	client->auth_generation++;
 }
 
+void airportal_client_remove(struct airportal_client_manager *mgr,
+			     struct airportal_client *client)
+{
+	size_t index;
+
+	if (!mgr || !client || client < mgr->clients ||
+	    client >= mgr->clients + AIRPORTAL_MAX_CLIENTS)
+		return;
+	index = (size_t)(client - mgr->clients);
+	if (!mgr->used[index])
+		return;
+
+	memset(client, 0, sizeof(*client));
+	mgr->used[index] = false;
+	if (mgr->count)
+		mgr->count--;
+}
+
 size_t airportal_client_count_state(const struct airportal_client_manager *mgr,
 				    enum airportal_client_state state)
 {

@@ -502,6 +502,16 @@ find_client_for_request(struct airportal_daemon *daemon,
 
 		if (!daemon->clients.used[i])
 			continue;
+		if (client->state == AIRPORTAL_CLIENT_AUTHENTICATED &&
+		    memcmp(client->key.mac, request->mac, sizeof(request->mac)) == 0)
+			return client;
+	}
+	for (i = 0; i < AIRPORTAL_MAX_CLIENTS; i++) {
+		struct airportal_client *client = &daemon->clients.clients[i];
+
+		if (!daemon->clients.used[i] ||
+		    client->state == AIRPORTAL_CLIENT_DISCONNECTED)
+			continue;
 		if (memcmp(client->key.mac, request->mac, sizeof(request->mac)) == 0)
 			return client;
 	}
