@@ -273,10 +273,18 @@ chain bandwidth {
 	ip saddr <client-ip> limit rate over <upload bytes/second> drop
 	ip daddr <client-ip> limit rate over <download bytes/second> drop
 }
+
+table bridge airportal_broute {
+	chain bandwidth_down {
+		ether daddr <mac> limit rate over <download bytes/second> drop
+	}
+}
 ```
 
 If the client IPv4 address is not known yet, the fallback uses MAC matches until
-the client IP is learned.
+the client IP is learned. The bridge-family download rule is installed as an
+extra egress-side guard because some AP paths do not reliably match download
+traffic by client MAC in the inet forward hook.
 
 Inspect bandwidth state:
 

@@ -293,6 +293,20 @@ int nft_manager_install_base_rules(struct nft_manager *mgr,
 				     AIRPORTAL_NFT_TABLE, portal_port);
 			return -1;
 		}
+		snprintf(script, sizeof(script),
+			 "table bridge " AIRPORTAL_NFT_BRIDGE_TABLE " {\n"
+			 "\tchain postrouting {\n"
+			 "\t\ttype filter hook postrouting priority filter; policy accept;\n"
+			 "\t\tjump bandwidth_down\n"
+			 "\t}\n"
+			 "\tchain bandwidth_down {\n"
+			 "\t}\n"
+			 "}\n");
+		if (run_nft_script(script) != 0) {
+			ap_log_error("nft_base_rules_failed table=bridge_%s",
+				     AIRPORTAL_NFT_BRIDGE_TABLE);
+			return -1;
+		}
 	}
 
 	mgr->ready = true;
@@ -425,13 +439,15 @@ static int nft_bandwidth_rebuild(struct nft_manager *mgr)
 	if (mgr->dry_run)
 		return 0;
 
-	script_len = 128u + AIRPORTAL_MAX_CLIENTS * 256u;
+	script_len = 256u + AIRPORTAL_MAX_CLIENTS * 384u;
 	script = calloc(1, script_len);
 	if (!script)
 		return -1;
 
 	n = snprintf(script, script_len,
-		     "flush chain inet " AIRPORTAL_NFT_TABLE " bandwidth\n");
+		     "flush chain inet " AIRPORTAL_NFT_TABLE " bandwidth\n"
+		     "flush chain bridge " AIRPORTAL_NFT_BRIDGE_TABLE
+		     " bandwidth_down\n");
 	if (n < 0 || (size_t)n >= script_len) {
 		free(script);
 		return -1;
@@ -471,20 +487,30 @@ static int nft_bandwidth_rebuild(struct nft_manager *mgr)
 			used += (size_t)n;
 		}
 		if (entry->download_bps) {
+			uint64_t download_bytes =
+				bps_to_bytes_per_second(entry->download_bps);
+
 			if (entry->has_ipv4)
 				n = snprintf(script + used, script_len - used,
 					     "add rule inet " AIRPORTAL_NFT_TABLE
 					     " bandwidth ip daddr %s limit rate over %llu bytes/second counter drop\n",
 					     ip,
-					     (unsigned long long)bps_to_bytes_per_second(
-						     entry->download_bps));
+					     (unsigned long long)download_bytes);
 			else
 				n = snprintf(script + used, script_len - used,
 					     "add rule inet " AIRPORTAL_NFT_TABLE
 					     " bandwidth ether daddr %s limit rate over %llu bytes/second counter drop\n",
 					     mac,
-					     (unsigned long long)bps_to_bytes_per_second(
-						     entry->download_bps));
+					     (unsigned long long)download_bytes);
+			if (n < 0 || (size_t)n >= script_len - used) {
+				free(script);
+				return -1;
+			}
+			used += (size_t)n;
+			n = snprintf(script + used, script_len - used,
+				     "add rule bridge " AIRPORTAL_NFT_BRIDGE_TABLE
+				     " bandwidth_down ether daddr %s limit rate over %llu bytes/second counter drop\n",
+				     mac, (unsigned long long)download_bytes);
 			if (n < 0 || (size_t)n >= script_len - used) {
 				free(script);
 				return -1;
