@@ -5,6 +5,7 @@
 #include "log.h"
 
 #include <errno.h>
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +17,8 @@ struct persisted_session {
 	uint8_t mac[6];
 	char ifname[IFNAMSIZ];
 	uint32_t portal_id;
+	struct in_addr ipv4;
+	bool has_ipv4;
 	char username[128];
 	char session_id[96];
 	struct airportal_session_policy policy;
@@ -122,7 +125,9 @@ int persistence_init(struct airportal_daemon *daemon)
 	       state->count < AIRPORTAL_MAX_SESSIONS) {
 		struct persisted_session *entry = &state->entries[state->count];
 		char mac_text[18];
+		char ip_text[INET_ADDRSTRLEN];
 		unsigned int portal_id;
+		unsigned int has_ipv4 = 0;
 		unsigned int allow_ipv4;
 		unsigned int allow_ipv6;
 		unsigned int has_assigned_vlan;
@@ -145,7 +150,32 @@ int persistence_init(struct airportal_daemon *daemon)
 		int required_fields;
 
 		memset(entry, 0, sizeof(*entry));
-		if (strncmp(line, "v2\t", 3) == 0) {
+		if (strncmp(line, "v3\t", 3) == 0) {
+			required_fields = 30;
+			parsed = sscanf(line,
+					"v3\t%17s\t%15s\t%u\t%u\t%15s\t%127s\t%95s\t"
+					"%u\t%u\t%u\t%llu\t%llu\t%llu\t%llu\t"
+					"%llu\t%llu\t%llu\t%llu\t%llu\t%u\t%u\t%u\t"
+					"%u\t%llu\t%llu\t%llu\t%u\t%u\t%127s\t%255s",
+					mac_text, entry->ifname, &portal_id,
+					&has_ipv4, ip_text,
+					entry->username, entry->session_id,
+					&entry->policy.session_timeout_sec,
+					&entry->policy.idle_timeout_sec,
+					&entry->policy.accounting_interval_sec,
+					&expires_at_wall_sec, &idle_expires_at_wall_sec,
+					&input_octets_base, &output_octets_base,
+					&input_octets, &output_octets,
+					&max_input_octets, &max_output_octets,
+					&max_total_octets,
+					&allow_ipv4, &allow_ipv6, &has_assigned_vlan,
+					&assigned_vlan, &max_upload_bps,
+					&max_download_bps,
+					&idle_activity_threshold_bytes,
+					&accounting_started, &policy_installed,
+					entry->policy.filter_id,
+					entry->policy.radius_class);
+		} else if (strncmp(line, "v2\t", 3) == 0) {
 			required_fields = 28;
 			parsed = sscanf(line,
 					"v2\t%17s\t%15s\t%u\t%127s\t%95s\t"
@@ -196,6 +226,9 @@ int persistence_init(struct airportal_daemon *daemon)
 		if (parsed < required_fields ||
 		    !airportal_parse_mac(mac_text, entry->mac))
 			continue;
+		if (has_ipv4 &&
+		    inet_pton(AF_INET, ip_text, &entry->ipv4) == 1)
+			entry->has_ipv4 = true;
 		entry->portal_id = portal_id;
 		entry->expires_at_wall_sec = expires_at_wall_sec;
 		entry->idle_expires_at_wall_sec = idle_expires_at_wall_sec;
@@ -253,6 +286,7 @@ int persistence_checkpoint(struct airportal_daemon *daemon)
 		struct airportal_session *session = &daemon->sessions.sessions[i];
 		struct airportal_client *client;
 		char mac[18];
+		char ip[INET_ADDRSTRLEN] = "-";
 		char username[128];
 		char filter_id[128];
 		char radius_class[256];
@@ -261,6 +295,9 @@ int persistence_checkpoint(struct airportal_daemon *daemon)
 			continue;
 		client = session->client;
 		airportal_format_mac(client->key.mac, mac, sizeof(mac));
+		if (client->has_ipv4 &&
+		    !inet_ntop(AF_INET, &client->ipv4, ip, sizeof(ip)))
+			snprintf(ip, sizeof(ip), "-");
 		sanitize_field(username, sizeof(username), client->username);
 		sanitize_field(filter_id, sizeof(filter_id),
 			       session->policy.filter_id[0] ?
@@ -269,10 +306,11 @@ int persistence_checkpoint(struct airportal_daemon *daemon)
 			       session->policy.radius_class[0] ?
 			       session->policy.radius_class : "-");
 		fprintf(fp,
-			"v2\t%s\t%s\t%u\t%s\t%s\t%u\t%u\t%u\t"
+			"v3\t%s\t%s\t%u\t%u\t%s\t%s\t%s\t%u\t%u\t%u\t"
 			"%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t"
 			"%llu\t%llu\t%u\t%u\t%u\t%u\t%llu\t%llu\t%llu\t%u\t%u\t%s\t%s\n",
-			mac, client->ifname, client->key.portal_id, username,
+			mac, client->ifname, client->key.portal_id,
+			client->has_ipv4 ? 1u : 0u, ip, username,
 			session->session_id, session->policy.session_timeout_sec,
 			session->policy.idle_timeout_sec,
 			session->policy.accounting_interval_sec,
@@ -346,6 +384,8 @@ int persistence_try_restore_client(struct airportal_daemon *daemon,
 				    entry->ifname, entry->portal_id);
 			return 0;
 		}
+		if (entry->has_ipv4)
+			airportal_client_set_ipv4(client, entry->ipv4);
 		if (enforcement_authorize(daemon, client, &entry->policy) != 0) {
 			daemon->metrics.policy_install_failures++;
 			ap_log_warn("persistence_restore_failed reason=enforcement ifname=%s portal_id=%u",
