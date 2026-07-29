@@ -8,6 +8,8 @@ struct nft_bandwidth_entry {
 	bool used;
 	struct airportal_client_key key;
 	char ifname[IFNAMSIZ];
+	struct in_addr ipv4;
+	bool has_ipv4;
 	uint64_t upload_bps;
 	uint64_t download_bps;
 };

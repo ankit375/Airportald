@@ -270,10 +270,13 @@ If tc cannot apply the policy, AirPortal falls back to nftables:
 
 ```text
 chain bandwidth {
-	ether saddr <mac> limit rate over <upload bytes/second> drop
-	ether daddr <mac> limit rate over <download bytes/second> drop
+	ip saddr <client-ip> limit rate over <upload bytes/second> drop
+	ip daddr <client-ip> limit rate over <download bytes/second> drop
 }
 ```
+
+If the client IPv4 address is not known yet, the fallback uses MAC matches until
+the client IP is learned.
 
 Inspect bandwidth state:
 

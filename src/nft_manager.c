@@ -406,6 +406,8 @@ static int nft_bandwidth_set_entry(struct nft_manager *mgr,
 	free_entry->key = client->key;
 	snprintf(free_entry->ifname, sizeof(free_entry->ifname), "%s",
 		 client->ifname);
+	free_entry->ipv4 = client->ipv4;
+	free_entry->has_ipv4 = client->has_ipv4;
 	free_entry->upload_bps = policy->max_upload_bps;
 	free_entry->download_bps = policy->max_download_bps;
 	return 0;
@@ -439,17 +441,29 @@ static int nft_bandwidth_rebuild(struct nft_manager *mgr)
 	for (i = 0; i < AIRPORTAL_MAX_CLIENTS; i++) {
 		struct nft_bandwidth_entry *entry = &mgr->bandwidth[i];
 		char mac[18];
+		char ip[INET_ADDRSTRLEN];
 
 		if (!entry->used)
 			continue;
 		airportal_format_mac(entry->key.mac, mac, sizeof(mac));
+		if (entry->has_ipv4 &&
+		    !inet_ntop(AF_INET, &entry->ipv4, ip, sizeof(ip)))
+			entry->has_ipv4 = false;
 		if (entry->upload_bps) {
-			n = snprintf(script + used, script_len - used,
-				     "add rule inet " AIRPORTAL_NFT_TABLE
-				     " bandwidth ether saddr %s limit rate over %llu bytes/second counter drop\n",
-				     mac,
-				     (unsigned long long)bps_to_bytes_per_second(
-					     entry->upload_bps));
+			if (entry->has_ipv4)
+				n = snprintf(script + used, script_len - used,
+					     "add rule inet " AIRPORTAL_NFT_TABLE
+					     " bandwidth ip saddr %s limit rate over %llu bytes/second counter drop\n",
+					     ip,
+					     (unsigned long long)bps_to_bytes_per_second(
+						     entry->upload_bps));
+			else
+				n = snprintf(script + used, script_len - used,
+					     "add rule inet " AIRPORTAL_NFT_TABLE
+					     " bandwidth ether saddr %s limit rate over %llu bytes/second counter drop\n",
+					     mac,
+					     (unsigned long long)bps_to_bytes_per_second(
+						     entry->upload_bps));
 			if (n < 0 || (size_t)n >= script_len - used) {
 				free(script);
 				return -1;
@@ -457,12 +471,20 @@ static int nft_bandwidth_rebuild(struct nft_manager *mgr)
 			used += (size_t)n;
 		}
 		if (entry->download_bps) {
-			n = snprintf(script + used, script_len - used,
-				     "add rule inet " AIRPORTAL_NFT_TABLE
-				     " bandwidth ether daddr %s limit rate over %llu bytes/second counter drop\n",
-				     mac,
-				     (unsigned long long)bps_to_bytes_per_second(
-					     entry->download_bps));
+			if (entry->has_ipv4)
+				n = snprintf(script + used, script_len - used,
+					     "add rule inet " AIRPORTAL_NFT_TABLE
+					     " bandwidth ip daddr %s limit rate over %llu bytes/second counter drop\n",
+					     ip,
+					     (unsigned long long)bps_to_bytes_per_second(
+						     entry->download_bps));
+			else
+				n = snprintf(script + used, script_len - used,
+					     "add rule inet " AIRPORTAL_NFT_TABLE
+					     " bandwidth ether daddr %s limit rate over %llu bytes/second counter drop\n",
+					     mac,
+					     (unsigned long long)bps_to_bytes_per_second(
+						     entry->download_bps));
 			if (n < 0 || (size_t)n >= script_len - used) {
 				free(script);
 				return -1;
