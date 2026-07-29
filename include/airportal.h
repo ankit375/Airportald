@@ -23,6 +23,7 @@ struct airportal_daemon {
 	uint64_t started_at_ms;
 	uint64_t last_walled_garden_refresh_ms;
 	bool shutting_down;
+	bool radius_available;
 
 	struct airportal_config config;
 	struct airportal_client_manager clients;

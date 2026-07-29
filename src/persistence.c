@@ -407,6 +407,8 @@ int persistence_try_restore_client(struct airportal_daemon *daemon,
 		session->accounting_started = entry->accounting_started;
 		session->policy_installed = entry->policy_installed;
 		session->last_accounting_update_ms = airportal_monotonic_ms();
+		if (session->accounting_started)
+			daemon->radius_available = true;
 		entry->used = false;
 		ap_log_info("persistence_restore_success session_id=%s username=%s ifname=%s portal_id=%u",
 			    session->session_id, client->username, client->ifname,

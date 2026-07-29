@@ -6,6 +6,7 @@
 
 #include <arpa/inet.h>
 #include <openssl/evp.h>
+#include <openssl/hmac.h>
 #include <openssl/rand.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,6 +30,7 @@
 #define RADIUS_ATTR_CALLING_STATION_ID 31
 #define RADIUS_ATTR_NAS_IDENTIFIER 32
 #define RADIUS_ATTR_NAS_PORT_TYPE 61
+#define RADIUS_ATTR_MESSAGE_AUTHENTICATOR 80
 
 #define RADIUS_SERVICE_TYPE_LOGIN 1
 #define RADIUS_NAS_PORT_TYPE_WIRELESS_80211 19
@@ -197,6 +199,43 @@ static size_t packet_serialize(const struct radius_packet *packet,
 	memcpy(out + 4, packet->authenticator, RADIUS_AUTHENTICATOR_LEN);
 	memcpy(out + 20, packet->attrs, packet->attr_len);
 	return 20 + packet->attr_len;
+}
+
+static bool packet_add_message_authenticator(struct radius_packet *packet)
+{
+	uint8_t zero[16] = { 0 };
+
+	return packet_add_attr(packet, RADIUS_ATTR_MESSAGE_AUTHENTICATOR,
+			       zero, sizeof(zero));
+}
+
+static bool fill_message_authenticator(uint8_t *packet, size_t packet_len,
+				       const char *secret)
+{
+	unsigned int hmac_len = 0;
+	size_t offset = 20;
+
+	while (offset + 2 <= packet_len) {
+		uint8_t type = packet[offset];
+		uint8_t attr_len = packet[offset + 1];
+
+		if (attr_len < 2 || offset + attr_len > packet_len)
+			return false;
+		if (type == RADIUS_ATTR_MESSAGE_AUTHENTICATOR &&
+		    attr_len == 18) {
+			uint8_t digest[EVP_MAX_MD_SIZE];
+
+			memset(packet + offset + 2, 0, 16);
+			if (!HMAC(EVP_md5(), secret, (int)strlen(secret),
+				  packet, packet_len, digest, &hmac_len) ||
+			    hmac_len != 16)
+				return false;
+			memcpy(packet + offset + 2, digest, 16);
+			return true;
+		}
+		offset += attr_len;
+	}
+	return false;
 }
 
 static bool verify_response_authenticator(const uint8_t *response, size_t len,
@@ -372,7 +411,8 @@ static bool build_access_request(const struct airportal_daemon *daemon,
 			      RADIUS_SERVICE_TYPE_LOGIN) &&
 	       packet_add_u32(packet, RADIUS_ATTR_NAS_PORT_TYPE,
 			      RADIUS_NAS_PORT_TYPE_WIRELESS_80211) &&
-	       packet_add_u32(packet, RADIUS_ATTR_FRAMED_MTU, 1500);
+	       packet_add_u32(packet, RADIUS_ATTR_FRAMED_MTU, 1500) &&
+	       packet_add_message_authenticator(packet);
 }
 
 enum radius_auth_result
@@ -409,6 +449,8 @@ radius_client_authenticate(struct airportal_daemon *daemon,
 	request_len = packet_serialize(&packet, request, sizeof(request));
 	if (request_len == 0)
 		return RADIUS_AUTH_ERROR;
+	if (!fill_message_authenticator(request, request_len, secret))
+		return RADIUS_AUTH_ERROR;
 
 	for (attempts = 0; attempts < radius->retry_count; attempts++) {
 		uint16_t response_len;
@@ -441,6 +483,7 @@ radius_client_authenticate(struct airportal_daemon *daemon,
 		}
 		if (response[0] == RADIUS_CODE_ACCESS_ACCEPT) {
 			parse_accept_attrs(response + 20, (size_t)n - 20, policy);
+			daemon->radius_available = true;
 			result = RADIUS_AUTH_ACCEPT;
 			break;
 		}
@@ -453,12 +496,17 @@ radius_client_authenticate(struct airportal_daemon *daemon,
 			ap_log_warn("radius_auth_reject username=%s code=%u reply=%s",
 				    username, response[0],
 				    reply_message[0] ? reply_message : "-");
+			daemon->radius_available = true;
 			result = RADIUS_AUTH_REJECT;
 			break;
 		}
 	}
 
-	if (result == RADIUS_AUTH_TIMEOUT)
+	if (result == RADIUS_AUTH_TIMEOUT) {
 		daemon->metrics.radius_timeouts++;
+		daemon->radius_available = false;
+	} else if (result == RADIUS_AUTH_ERROR) {
+		daemon->radius_available = false;
+	}
 	return result;
 }

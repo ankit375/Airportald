@@ -114,7 +114,7 @@ static int status_handler(struct ubus_context *ctx, struct ubus_object *obj,
 			(uint32_t)airportal_client_count_state(&daemon->clients,
 							       AIRPORTAL_CLIENT_CAPTIVE));
 	blobmsg_add_u32(&b, "active_sessions", (uint32_t)daemon->sessions.count);
-	blobmsg_add_u8(&b, "radius_available", false);
+	blobmsg_add_u8(&b, "radius_available", daemon->radius_available);
 	blobmsg_add_u8(&b, "cloud_connected", false);
 	blobmsg_add_u8(&b, "nft_ready", daemon->nft.ready);
 	blobmsg_add_u8(&b, "tc_ready", daemon->tc.ready);

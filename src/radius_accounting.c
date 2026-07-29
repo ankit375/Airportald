@@ -358,6 +358,7 @@ int radius_accounting_start(struct airportal_daemon *daemon,
 {
 	int rc = send_accounting(daemon, session, RADIUS_ACCT_STATUS_START, NULL);
 
+	daemon->radius_available = rc == 0;
 	if (rc == 0 && session)
 		ap_log_info("radius_accounting_start session_id=%s", session->session_id);
 	return rc;
@@ -369,6 +370,7 @@ int radius_accounting_interim_update(struct airportal_daemon *daemon,
 	int rc = send_accounting(daemon, session,
 				 RADIUS_ACCT_STATUS_INTERIM_UPDATE, NULL);
 
+	daemon->radius_available = rc == 0;
 	if (rc == 0 && session)
 		ap_log_info("radius_accounting_interim_update session_id=%s",
 			    session->session_id);
@@ -381,6 +383,7 @@ int radius_accounting_stop(struct airportal_daemon *daemon,
 {
 	int rc = send_accounting(daemon, session, RADIUS_ACCT_STATUS_STOP, reason);
 
+	daemon->radius_available = rc == 0;
 	if (rc == 0 && session)
 		ap_log_info("radius_accounting_stop session_id=%s reason=%s",
 			    session->session_id, reason ? reason : "unknown");

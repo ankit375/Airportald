@@ -191,6 +191,7 @@ static int exchange_radsec(const struct airportal_radius_config *radius,
 	SSL *ssl = NULL;
 	uint8_t header[4];
 	uint16_t radius_len;
+	const char *stage = "init";
 	int fd = -1;
 	int rc = -1;
 
@@ -198,29 +199,37 @@ static int exchange_radsec(const struct airportal_radius_config *radius,
 		ap_log_warn("radsec_failed reason=missing_ca profile=%s", radius->name);
 		return -1;
 	}
+	stage = "tcp_connect";
 	fd = connect_socket(host, port, SOCK_STREAM, radius->timeout_ms);
 	if (fd < 0)
 		return -1;
+	stage = "ctx_new";
 	ctx = SSL_CTX_new(TLS_client_method());
 	if (!ctx)
 		goto out;
 	SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+	stage = "load_ca";
 	if (SSL_CTX_load_verify_locations(ctx, radius->radsec_ca_cert, NULL) != 1)
 		goto out;
+	stage = "load_crl";
 	if (!load_crl(ctx, radius->radsec_crl_file))
 		goto out;
+	stage = "load_client_cert";
 	if (radius->radsec_client_cert[0] &&
 	    SSL_CTX_use_certificate_file(ctx, radius->radsec_client_cert,
 					 SSL_FILETYPE_PEM) != 1)
 		goto out;
+	stage = "load_client_key";
 	if (radius->radsec_client_key[0] &&
 	    SSL_CTX_use_PrivateKey_file(ctx, radius->radsec_client_key,
 					SSL_FILETYPE_PEM) != 1)
 		goto out;
+	stage = "check_client_key";
 	if (radius->radsec_client_cert[0] && radius->radsec_client_key[0] &&
 	    SSL_CTX_check_private_key(ctx) != 1)
 		goto out;
 
+	stage = "ssl_new";
 	ssl = SSL_new(ctx);
 	if (!ssl)
 		goto out;
@@ -231,29 +240,41 @@ static int exchange_radsec(const struct airportal_radius_config *radius,
 		SSL_set_tlsext_host_name(ssl, server_name);
 	if (radius->radsec_verify_host && server_name[0])
 		X509_VERIFY_PARAM_set1_host(SSL_get0_param(ssl), server_name, 0);
+	stage = "tls_handshake";
 	while ((rc = SSL_connect(ssl)) != 1) {
 		if (ssl_wait(ssl, rc, radius->timeout_ms) != 0)
 			goto out;
 	}
+	stage = "write_request";
 	if (ssl_write_all(ssl, request, request_len, radius->timeout_ms) != 0)
 		goto out;
+	stage = "read_header";
 	if (ssl_read_exact(ssl, header, sizeof(header), radius->timeout_ms) != 0)
 		goto out;
 	memcpy(response, header, sizeof(header));
 	memcpy(&radius_len, header + 2, sizeof(radius_len));
 	radius_len = ntohs(radius_len);
+	stage = "validate_header";
 	if (radius_len < RADIUS_HEADER_LEN || radius_len > response_len ||
 	    radius_len > RADIUS_PACKET_MAX)
 		goto out;
+	stage = "read_body";
 	if (ssl_read_exact(ssl, response + sizeof(header),
 			   radius_len - sizeof(header), radius->timeout_ms) != 0)
 		goto out;
 	*actual_response_len = radius_len;
 	rc = 0;
 out:
-	if (rc != 0)
-		ap_log_warn("radsec_exchange_failed profile=%s host=%s port=%u error=%lu",
-			    radius->name, host, port, ERR_get_error());
+	if (rc != 0) {
+		unsigned long err = ERR_get_error();
+		char errbuf[160] = "-";
+		long verify = ssl ? SSL_get_verify_result(ssl) : X509_V_OK;
+
+		if (err)
+			ERR_error_string_n(err, errbuf, sizeof(errbuf));
+		ap_log_warn("radsec_exchange_failed profile=%s host=%s port=%u stage=%s error=%lu error_text=\"%s\" verify=%ld",
+			    radius->name, host, port, stage, err, errbuf, verify);
+	}
 	if (ssl) {
 		SSL_shutdown(ssl);
 		SSL_free(ssl);
