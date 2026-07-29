@@ -17,6 +17,7 @@ SRC := \
 	portal_http.c \
 	radius_accounting.c \
 	radius_client.c \
+	radius_transport.c \
 	session_manager.c \
 	tc_manager.c \
 	token_manager.c \

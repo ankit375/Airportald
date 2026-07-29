@@ -103,7 +103,8 @@ runtime packages, RADIUS/UAM/CoA behavior, and test commands. See
 RADIUS packet path. See [docs/stress-test-plan.md](docs/stress-test-plan.md)
 for the full AP stress test checklist. See
 [docs/coova-chilli-comparison.md](docs/coova-chilli-comparison.md) for the
-Coova-Chilli feature comparison.
+Coova-Chilli feature comparison. See [docs/radsec.md](docs/radsec.md) for
+native RadSec configuration.
 
 Install on target:
 

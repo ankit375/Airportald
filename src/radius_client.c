@@ -2,18 +2,13 @@
 
 #include "airportal.h"
 #include "log.h"
+#include "radius_transport.h"
 
 #include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <netdb.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
-#include <poll.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 #define RADIUS_CODE_ACCESS_REQUEST 1
 #define RADIUS_CODE_ACCESS_ACCEPT 2
@@ -202,35 +197,6 @@ static size_t packet_serialize(const struct radius_packet *packet,
 	memcpy(out + 4, packet->authenticator, RADIUS_AUTHENTICATOR_LEN);
 	memcpy(out + 20, packet->attrs, packet->attr_len);
 	return 20 + packet->attr_len;
-}
-
-static int connect_radius_socket(const struct airportal_radius_config *radius)
-{
-	struct addrinfo hints;
-	struct addrinfo *res = NULL;
-	struct addrinfo *ai;
-	char port[16];
-	int fd = -1;
-
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_socktype = SOCK_DGRAM;
-	hints.ai_family = AF_UNSPEC;
-	snprintf(port, sizeof(port), "%u", radius->auth_port);
-	if (getaddrinfo(radius->auth_server, port, &hints, &res) != 0)
-		return -1;
-
-	for (ai = res; ai; ai = ai->ai_next) {
-		fd = socket(ai->ai_family, ai->ai_socktype | SOCK_CLOEXEC,
-			    ai->ai_protocol);
-		if (fd < 0)
-			continue;
-		if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0)
-			break;
-		close(fd);
-		fd = -1;
-	}
-	freeaddrinfo(res);
-	return fd;
 }
 
 static bool verify_response_authenticator(const uint8_t *response, size_t len,
@@ -422,7 +388,6 @@ radius_client_authenticate(struct airportal_daemon *daemon,
 	uint8_t request[RADIUS_PACKET_MAX];
 	uint8_t response[RADIUS_PACKET_MAX];
 	char secret[256];
-	int fd;
 	size_t request_len;
 	uint32_t attempts;
 	enum radius_auth_result result = RADIUS_AUTH_TIMEOUT;
@@ -436,33 +401,32 @@ radius_client_authenticate(struct airportal_daemon *daemon,
 	if (!build_access_request(daemon, radius, client, username, password,
 				  secret, &packet))
 		return RADIUS_AUTH_ERROR;
-	ap_log_info("radius_auth_request username=%s server=%s nas_identifier=%s",
-		    username, radius->auth_server,
+	ap_log_info("radius_auth_request username=%s server=%s port=%u transport=%s nas_identifier=%s",
+		    username, radius->auth_server, radius->auth_port,
+		    radius->transport[0] ? radius->transport : "udp",
 		    radius->nas_identifier[0] ? radius->nas_identifier :
 		    daemon->config.global.device_id);
 	request_len = packet_serialize(&packet, request, sizeof(request));
 	if (request_len == 0)
 		return RADIUS_AUTH_ERROR;
 
-	fd = connect_radius_socket(radius);
-	if (fd < 0)
-		return RADIUS_AUTH_ERROR;
-
 	for (attempts = 0; attempts < radius->retry_count; attempts++) {
-		struct pollfd pfd;
 		uint16_t response_len;
-		ssize_t n;
+		size_t n = 0;
+		int transport_rc;
 
-		if (send(fd, request, request_len, 0) != (ssize_t)request_len) {
+		transport_rc = radius_transport_exchange(radius,
+							 radius->auth_server,
+							 radius->auth_port,
+							 request, request_len,
+							 response, sizeof(response),
+							 &n);
+		if (transport_rc < 0) {
 			result = RADIUS_AUTH_ERROR;
 			break;
 		}
-		memset(&pfd, 0, sizeof(pfd));
-		pfd.fd = fd;
-		pfd.events = POLLIN;
-		if (poll(&pfd, 1, (int)radius->timeout_ms) <= 0)
+		if (transport_rc > 0)
 			continue;
-		n = recv(fd, response, sizeof(response), 0);
 		if (n < 20)
 			continue;
 		if (response[1] != packet.id)
@@ -494,7 +458,6 @@ radius_client_authenticate(struct airportal_daemon *daemon,
 		}
 	}
 
-	close(fd);
 	if (result == RADIUS_AUTH_TIMEOUT)
 		daemon->metrics.radius_timeouts++;
 	return result;

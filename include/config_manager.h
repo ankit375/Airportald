@@ -49,6 +49,7 @@ struct airportal_binding_config {
 
 struct airportal_radius_config {
 	char name[32];
+	char transport[16];
 	char auth_server[64];
 	uint16_t auth_port;
 	char acct_server[64];
@@ -58,6 +59,12 @@ struct airportal_radius_config {
 	uint16_t coa_port;
 	char secret_file[128];
 	char nas_identifier[64];
+	char radsec_ca_cert[128];
+	char radsec_client_cert[128];
+	char radsec_client_key[128];
+	char radsec_crl_file[128];
+	char radsec_server_name[128];
+	bool radsec_verify_host;
 	uint32_t retry_count;
 	uint32_t timeout_ms;
 };

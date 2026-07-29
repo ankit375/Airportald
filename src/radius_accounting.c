@@ -2,16 +2,13 @@
 
 #include "airportal.h"
 #include "log.h"
+#include "radius_transport.h"
 
 #include <arpa/inet.h>
-#include <netdb.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
-#include <poll.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 #define RADIUS_CODE_ACCOUNTING_REQUEST 4
 #define RADIUS_CODE_ACCOUNTING_RESPONSE 5
@@ -167,35 +164,6 @@ static size_t packet_serialize(struct radius_acct_packet *packet,
 	return 20 + packet->attr_len;
 }
 
-static int connect_radius_socket(const struct airportal_radius_config *radius)
-{
-	struct addrinfo hints;
-	struct addrinfo *res = NULL;
-	struct addrinfo *ai;
-	char port[16];
-	int fd = -1;
-
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_socktype = SOCK_DGRAM;
-	hints.ai_family = AF_UNSPEC;
-	snprintf(port, sizeof(port), "%u", radius->acct_port);
-	if (getaddrinfo(radius->acct_server, port, &hints, &res) != 0)
-		return -1;
-
-	for (ai = res; ai; ai = ai->ai_next) {
-		fd = socket(ai->ai_family, ai->ai_socktype | SOCK_CLOEXEC,
-			    ai->ai_protocol);
-		if (fd < 0)
-			continue;
-		if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0)
-			break;
-		close(fd);
-		fd = -1;
-	}
-	freeaddrinfo(res);
-	return fd;
-}
-
 static bool verify_response_authenticator(const uint8_t *response, size_t len,
 					  const uint8_t request_auth[RADIUS_AUTHENTICATOR_LEN],
 					  const char *secret)
@@ -340,7 +308,6 @@ static int send_accounting(struct airportal_daemon *daemon,
 	char secret[256];
 	size_t request_len;
 	uint32_t attempts;
-	int fd;
 	int rc = -1;
 
 	radius = session_radius_profile(daemon, session);
@@ -354,23 +321,22 @@ static int send_accounting(struct airportal_daemon *daemon,
 	request_len = packet_serialize(&packet, secret, request, sizeof(request));
 	if (request_len == 0)
 		return -1;
-	fd = connect_radius_socket(radius);
-	if (fd < 0)
-		return -1;
 
 	for (attempts = 0; attempts < radius->retry_count; attempts++) {
-		struct pollfd pfd;
 		uint16_t response_len;
-		ssize_t n;
+		size_t n = 0;
+		int transport_rc;
 
-		if (send(fd, request, request_len, 0) != (ssize_t)request_len)
+		transport_rc = radius_transport_exchange(radius,
+							 radius->acct_server,
+							 radius->acct_port,
+							 request, request_len,
+							 response, sizeof(response),
+							 &n);
+		if (transport_rc < 0)
 			break;
-		memset(&pfd, 0, sizeof(pfd));
-		pfd.fd = fd;
-		pfd.events = POLLIN;
-		if (poll(&pfd, 1, (int)radius->timeout_ms) <= 0)
+		if (transport_rc > 0)
 			continue;
-		n = recv(fd, response, sizeof(response), 0);
 		if (n < 20 || response[0] != RADIUS_CODE_ACCOUNTING_RESPONSE ||
 		    response[1] != packet.id)
 			continue;
@@ -384,7 +350,6 @@ static int send_accounting(struct airportal_daemon *daemon,
 		break;
 	}
 
-	close(fd);
 	return rc;
 }
 

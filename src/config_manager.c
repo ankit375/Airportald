@@ -198,6 +198,12 @@ int airportal_config_validate(struct airportal_config *cfg)
 		const struct airportal_radius_config *radius = &cfg->radius[i];
 		bool referenced = false;
 
+		if (strcmp(radius->transport, "udp") != 0 &&
+		    strcmp(radius->transport, "radsec") != 0) {
+			set_error(cfg, "radius profile %s has invalid transport",
+				  radius->name);
+			return -1;
+		}
 		if (!valid_port(radius->auth_port) || !valid_port(radius->acct_port) ||
 		    !valid_port(radius->coa_port)) {
 			set_error(cfg, "radius profile %s has invalid port", radius->name);
@@ -213,6 +219,32 @@ int airportal_config_validate(struct airportal_config *cfg)
 		    access(radius->secret_file, R_OK) != 0) {
 			set_error(cfg, "radius profile %s secret_file unreadable", radius->name);
 			return -1;
+		}
+		if (referenced && strcmp(radius->transport, "radsec") == 0) {
+			if (!radius->radsec_ca_cert[0] ||
+			    access(radius->radsec_ca_cert, R_OK) != 0) {
+				set_error(cfg, "radius profile %s radsec_ca_cert unreadable",
+					  radius->name);
+				return -1;
+			}
+			if (radius->radsec_client_cert[0] &&
+			    access(radius->radsec_client_cert, R_OK) != 0) {
+				set_error(cfg, "radius profile %s radsec_client_cert unreadable",
+					  radius->name);
+				return -1;
+			}
+			if (radius->radsec_client_key[0] &&
+			    access(radius->radsec_client_key, R_OK) != 0) {
+				set_error(cfg, "radius profile %s radsec_client_key unreadable",
+					  radius->name);
+				return -1;
+			}
+			if (radius->radsec_crl_file[0] &&
+			    access(radius->radsec_crl_file, R_OK) != 0) {
+				set_error(cfg, "radius profile %s radsec_crl_file unreadable",
+					  radius->name);
+				return -1;
+			}
 		}
 	}
 
@@ -365,14 +397,20 @@ int airportal_config_load(struct airportal_config *cfg, const char *package)
 				&cfg->radius[cfg->radius_count++];
 
 			snprintf(radius->name, sizeof(radius->name), "%s", s->e.name);
+			snprintf(radius->transport, sizeof(radius->transport), "%s",
+				 uci_lookup_string(ctx, s, "transport"));
+			if (!radius->transport[0])
+				snprintf(radius->transport, sizeof(radius->transport), "udp");
 			snprintf(radius->auth_server, sizeof(radius->auth_server), "%s",
 				 uci_lookup_string(ctx, s, "auth_server"));
-			radius->auth_port = (uint16_t)uci_lookup_u32(ctx, s, "auth_port",
-								     1812);
+			radius->auth_port = (uint16_t)uci_lookup_u32(
+				ctx, s, "auth_port",
+				strcmp(radius->transport, "radsec") == 0 ? 2083 : 1812);
 			snprintf(radius->acct_server, sizeof(radius->acct_server), "%s",
 				 uci_lookup_string(ctx, s, "acct_server"));
-			radius->acct_port = (uint16_t)uci_lookup_u32(ctx, s, "acct_port",
-								     1813);
+			radius->acct_port = (uint16_t)uci_lookup_u32(
+				ctx, s, "acct_port",
+				strcmp(radius->transport, "radsec") == 0 ? 2083 : 1813);
 			snprintf(radius->coa_bind, sizeof(radius->coa_bind), "%s",
 				 uci_lookup_string(ctx, s, "coa_bind"));
 			snprintf(radius->coa_source, sizeof(radius->coa_source), "%s",
@@ -383,6 +421,23 @@ int airportal_config_load(struct airportal_config *cfg, const char *package)
 				 uci_lookup_string(ctx, s, "secret_file"));
 			snprintf(radius->nas_identifier, sizeof(radius->nas_identifier), "%s",
 				 uci_lookup_string(ctx, s, "nas_identifier"));
+			snprintf(radius->radsec_ca_cert,
+				 sizeof(radius->radsec_ca_cert), "%s",
+				 uci_lookup_string(ctx, s, "radsec_ca_cert"));
+			snprintf(radius->radsec_client_cert,
+				 sizeof(radius->radsec_client_cert), "%s",
+				 uci_lookup_string(ctx, s, "radsec_client_cert"));
+			snprintf(radius->radsec_client_key,
+				 sizeof(radius->radsec_client_key), "%s",
+				 uci_lookup_string(ctx, s, "radsec_client_key"));
+			snprintf(radius->radsec_crl_file,
+				 sizeof(radius->radsec_crl_file), "%s",
+				 uci_lookup_string(ctx, s, "radsec_crl_file"));
+			snprintf(radius->radsec_server_name,
+				 sizeof(radius->radsec_server_name), "%s",
+				 uci_lookup_string(ctx, s, "radsec_server_name"));
+			radius->radsec_verify_host =
+				uci_lookup_bool(ctx, s, "radsec_verify_host", false);
 			radius->retry_count = uci_lookup_u32(ctx, s, "retry_count", 3);
 			radius->timeout_ms = uci_lookup_u32(ctx, s, "timeout_ms", 3000);
 		} else if (strcmp(s->type, "walled_garden") == 0 &&
